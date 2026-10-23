@@ -60,6 +60,12 @@ def initialize_schema(connection: Connection, *, schema: str = DEFAULT_SCHEMA) -
     """原子建表；重复执行保留数据，结构不匹配时明确报错。"""
     name = check_schema_name(schema)
     with connection.transaction():
+        # 空实例还没有元数据表可锁；同一 schema 的首次初始化需在建表前排队。
+        # 事务锁在 prepare 的外层事务结束后释放，覆盖初始化到导入的整个边界。
+        connection.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            (f"casetrace.initialize_schema:{name}",),
+        )
         existing = schema_version(connection, schema=name)
         if existing is not None and existing != SCHEMA_VERSION:
             raise RuntimeError(

@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from urllib.parse import quote
 
 import psycopg
 
@@ -22,10 +23,11 @@ TEST_DATABASE_URL_ENV = "CASETRACE_TEST_DATABASE_URL"
 def resolve_database_url(
     *, test: bool = False, env: Mapping[str, str] | None = None,
 ) -> str:
-    """取连接串：环境变量优先，其次项目根目录 .env。
+    """宿主取显式 URL；容器由单一应用密码构造内部地址。
 
     `env` 只供测试注入；为 None 时先调用 `load_local_env()`（不覆盖已存在的
     环境变量），再读 `os.environ`。取不到就明确报错，不提供默认凭据。
+    `CASETRACE_CONTAINER=1` 时忽略宿主及旧容器 URL；测试始终使用显式测试 URL。
     """
 
     if env is None:
@@ -33,6 +35,11 @@ def resolve_database_url(
         source: Mapping[str, str] = os.environ
     else:
         source = env
+    if not test and source.get("CASETRACE_CONTAINER") == "1":
+        password = source.get("CASETRACE_POSTGRES_PASSWORD")
+        if not isinstance(password, str) or not password.strip():
+            raise RuntimeError("缺少容器数据库密码：请设置 CASETRACE_POSTGRES_PASSWORD")
+        return f"postgresql://casetrace:{quote(password, safe='')}@postgres:5432/casetrace"
     key = TEST_DATABASE_URL_ENV if test else DATABASE_URL_ENV
     url = source.get(key)
     if not isinstance(url, str) or not url.strip():

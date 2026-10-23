@@ -25,6 +25,18 @@ services:
       start_period: 10s
     shm_size: 128mb
 
+  # 每次主入口都显式执行本服务；已有有效快照只核对当前内容，不回填样例。
+  prepare:
+    image: casetrace-api:dev
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      CASETRACE_CONTAINER: "1"
+      CASETRACE_POSTGRES_PASSWORD: ${CASETRACE_POSTGRES_PASSWORD:?Set the app password in .env}
+    command: ["python", "-m", "casetrace.storage", "prepare"]
+
   api:
     build:
       context: .
@@ -33,9 +45,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      prepare:
+        condition: service_completed_successfully
     environment:
-      # 容器内用 Compose 服务名连同一网络的数据库；宿主 CLI 仍用 127.0.0.1 地址。
-      CASETRACE_DATABASE_URL: ${CASETRACE_CONTAINER_DATABASE_URL:?Set the container database URL in .env}
+      # 由单一应用密码构造容器地址；宿主显式 URL 不注入容器。
+      CASETRACE_CONTAINER: "1"
+      CASETRACE_POSTGRES_PASSWORD: ${CASETRACE_POSTGRES_PASSWORD:?Set the app password in .env}
       # 模型凭据只在核心确需生成时使用；缺省为空也能构建、启动、导入与 check-only。
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
     ports:
