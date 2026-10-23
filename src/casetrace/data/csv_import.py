@@ -1,5 +1,6 @@
 """唯一上传格式：Case、Detail、Evidence 分行；只适用 CR，不施加合成采样限制。"""
 
+from collections import Counter
 from dataclasses import fields
 from datetime import date
 import csv
@@ -65,13 +66,14 @@ def parse_csv(raw: bytes, *, reference: ReferenceData, known_at: date,
     reader = csv.reader(io.StringIO(text, newline=""), strict=True)
     try:
         header = next(reader, [])
+        header_counts = Counter(header)
         for column in COLUMNS:
-            if column not in header:
+            if column not in header_counts:
                 error(1, column, "缺少模板列")
-        for column in header:
+        for column, count in header_counts.items():
             if column not in COLUMNS:
                 error(1, column, "不是模板列")
-            elif header.count(column) > 1:
+            elif count > 1:
                 error(1, column, "列名重复")
         if errors:
             raise CsvImportError(errors)

@@ -90,8 +90,10 @@ def test_openapi_documents_request_contract(client):
     assert request_schema["additionalProperties"] is False
     assert set(request_schema["required"]) == {"query", "known_at"}
     assert request_schema["properties"]["known_at"]["format"] == "date"
-    assert request_schema["properties"]["top_k"]["default"] == 4
-    assert request_schema["properties"]["top_k"]["exclusiveMinimum"] == 0
+    assert request_schema["properties"]["top_k"].get("default") is None
+    integer = request_schema["properties"]["top_k"]["anyOf"][0]
+    assert integer["exclusiveMinimum"] == 0
+    assert integer["maximum"] == 10
 
 
 def test_openapi_has_request_and_response_examples(client):
@@ -167,7 +169,7 @@ def test_invalid_request_is_422_without_dependencies(client, kwargs):
 def test_request_defaults_and_query_original_text_preserved():
     request = AnswerRequest(query="  焊线脱落，已排除运输碰伤  ", known_at="2026-09-15")
 
-    assert request.top_k == 4
+    assert request.top_k is None  # 省略时在请求开始读取已保存设置
     # 不改写、不截断：前后空白也不能被裁掉。
     assert request.query == "  焊线脱落，已排除运输碰伤  "
 

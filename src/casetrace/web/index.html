@@ -10,7 +10,7 @@
 <body>
   <header class="page-header">
     <h1>Case-X-Hunter 历史案例参考</h1>
-    <nav class="actions" aria-label="页面导航"><a href="/" aria-current="page">搜索历史案例</a><a href="/settings">资料设置</a></nav>
+    <nav class="actions" aria-label="页面导航"><a href="/" aria-current="page">搜索历史案例</a><a href="/settings">设置</a></nav>
     <p class="notice" role="note">
       搜索历史案例与检查证据，配置模型后可生成有来源的调查参考。
       <strong>历史原因与措施不等于当前异常的最终根因或当前建议。</strong>
@@ -29,6 +29,7 @@
           <p class="hint">原文发送给服务端，不改写、不截断；空白 Query 不会提交。</p>
         </div>
         <p id="model-status" class="hint" role="status">正在检查模型配置；搜索无需模型密钥。</p>
+        <p id="runtime-settings" class="hint" role="status">正在读取实例设置…</p>
         <div class="actions search-actions">
           <button id="submit-button" type="submit">搜索历史案例</button>
           <button id="generate-button" type="submit" class="secondary" disabled>生成调查参考</button>
@@ -56,11 +57,7 @@
               <input id="known-at" name="known_at" type="date" value="2026-09-15" required readonly>
               <p class="hint">使用当前数据集登记的完整可用日期，不支持任意历史日期过滤。</p>
             </div>
-            <div class="field">
-              <label for="top-k">候选条数 top_k</label>
-              <input id="top-k" name="top_k" type="number" value="4" min="1" step="1" required>
-              <p class="hint">阅读前 k 条候选，必须是正整数；默认 4。</p>
-            </div>
+            <p class="hint">Top K 与回答输出上限请到<a href="/settings">设置页</a>修改。本次实际参数可在结果中核对。</p>
           </div>
         </details>
       </form>

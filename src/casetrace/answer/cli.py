@@ -98,11 +98,11 @@ RUN_LIMITS = (
 )
 
 
-def build_model(model_name: str) -> ChatModel:
+def build_model(model_name: str, *, max_tokens: int = 4096) -> ChatModel:
     """构造真实模型；真实路径固定 DeepSeek 非思考模式，测试可替换该工厂。"""
 
     # v2 复制历史改善措施与来源，给完整 JSON 留出空间；不增加重试。
-    return DeepSeekChatModel(model=model_name, max_tokens=4096)
+    return DeepSeekChatModel(model=model_name, max_tokens=max_tokens)
 
 
 def load_database_snapshot(schema: str) -> LoadedSnapshot:

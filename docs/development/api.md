@@ -37,13 +37,21 @@ curl --fail-with-body http://127.0.0.1:8000/health          # {"status":"ok"}
 
 ### 数据状态与整体替换（展示升级 03）
 
-`GET /settings` 为资料设置页。`GET /dataset` 返回名称、Case/Detail/Evidence 数量、更新时间、登记时点及依据、draft 状态和数据摘要，不返回连接或凭据。`GET /dataset/template` 和 `/dataset/example` 可在无数据库时下载固定 CSV 模板及完整合成示例；`GET /dataset/reference` 返回当前实例允许的主数据和枚举。填写规则见 [CSV 上传格式](../data/upload-format.md)。
+`GET /settings` 为设置页。`GET /dataset` 返回名称、Case/Detail/Evidence 数量、更新时间、登记时点及依据、draft 状态和数据摘要，不返回连接或凭据。`GET /dataset/template` 和 `/dataset/example` 可在无数据库时下载固定 CSV 模板及完整合成示例；`GET /dataset/reference` 返回当前实例允许的主数据和枚举。填写规则见 [CSV 上传格式](../data/upload-format.md)。
 
 `POST /dataset` 的请求体为原始 CSV 字节（`Content-Type: text/csv`），查询参数为 `dataset_name`（1–120 字符）、`known_at`（严格 ISO 日期）、`basis`（1–2000 字符）、`filename`（1–255 字符的 CSV 文件名，无目录），拒绝额外参数和空白／占位。请求流读取超过 5 MiB 即返回 413，不进入数据库。原始字节摘要在 UTF-8 解码前计算；接受 BOM。
 
 上传成功返回 200：`{"status":"imported","message":"当前数据集已整体替换。","dataset":{...}}`。CSV 或业务检查失败返回 422，`errors` 中包含 `row`（物理起始行，无法定位时 null）、`column`、`message`；元数据校验失败沿用框架 `detail`。写入或数据库前提失败返回 503 和安全说明，事务回滚；未预期错误为 500。网络断开时客户端不能由缺少回执推断事务未提交，应读取当前数据状态核对，页面不自动重传。
 
 替换只修改当前运行 schema 的业务记录和单行快照元数据，主数据保持原内容；原文件和评估文件不被写入。读回共享锁覆盖多表读取，替换和启动准备使用同一元数据表的排他锁。模型生成发生在读库连接关闭之后，正在执行的回答保留旧快照并完成。网页上传不调用模型。
+
+### 实例设置（展示升级 04）
+
+`GET /runtime-settings` 返回 `{"top_k":4,"max_tokens":4096}`。`PUT /runtime-settings` 要求同时提交这两个字段；拒绝未知字段，不接收模型、端点或密钥。Top K 为 1–10 的严格整数，输出上限仅支持严格整数 2048、4096。成功返回实际已提交的值；读取或保存不可用返回 503，不能用默认值冒充成功。422 错误保留字段位置与原因，不回显输入值。
+
+非密钥设置保存在当前 schema 的独立单行表中。每次网页/API 请求开始读取一份不可变配置，下一次请求生效，无需重启；已开始的请求保持原参数。CLI 保留原有参数行为。上传替换、`prepare` 与进程重启均保留设置。仍固定 DeepSeek `deepseek-flash`、非思考模式、JSON Output、温度 0；设置页状态只表示密钥是否配置，不验证连接。
+
+已有开发库升级时运行 `uv run --locked python -m casetrace.storage prepare` 补齐设置表；容器主启动入口已执行该步骤。缺失设置表会明确失败，不会自动静默初始化。
 
 ### 搜索与回答
 
@@ -53,7 +61,7 @@ curl --fail-with-body http://127.0.0.1:8000/health          # {"status":"ok"}
 |---|---|
 | `query` | 必填字符串，拒绝空白；原样传给核心，不改写、截断或反填 |
 | `known_at` | 必填 `YYYY-MM-DD`；须与 `GET /dataset` 返回的当前登记日期一致，不接受时间戳或 datetime。内置示例为 `2026-09-15` |
-| `top_k` | 可省略，默认 4；严格正整数（拒绝 bool、小数、数字字符串） |
+| `top_k` | 可省略，使用已保存实例值（初始为 4）；显式值覆盖本次请求但不修改实例设置。仅接受 1–10 的严格整数，拒绝 bool、小数、字符串及 null |
 
 ```bash
 curl --fail-with-body http://127.0.0.1:8000/answer \
@@ -117,7 +125,7 @@ curl --fail-with-body http://127.0.0.1:8000/search \
 
 响应沿用 `status`、`message`、`record` 外壳。HTTP 200 的 `status` 为 `retrieved` 或 `no_hits`；记录版本为 `search-run-1`，含原始 `query`、`snapshot`、`corpus`、`retrieval`、`ranking`、`context`、`notes`，并明确 `response.called_model=false`、`answer=null`。检索候选不是已确认相关案例，不用分数判断支持充分；此记录不是模型回答或引用校验结果。422、503、500 的含义沿用上表。
 
-`GET /model-status` 只返回 `{"configured":true}` 或 `{"configured":false}`。服务端沿用环境变量优先、本机 `.env` 兜底的规则；注入模型工厂的离线测试服务也报告已配置。此接口不连接数据库、不构造模型、不联网验证凭据，不返回密钥或参数明文。配置存在不保证实际调用成功；修改 `.env` 后重启服务或重新运行 Docker 入口。
+`GET /model-status` 只返回 `{"configured":true}` 或 `{"configured":false}`。服务端沿用环境变量优先、本机 `.env` 兜底的规则；注入模型工厂的离线测试服务也报告已配置。此接口不连接数据库、不构造模型、不联网验证凭据，不返回密钥或参数明文。配置存在不保证实际调用成功；修改 `.env` 后，宿主 Python 需重启进程；Docker 需重新创建 API 容器，例如 `docker compose up -d --force-recreate api`，普通容器 restart 不会更新已注入的环境变量。
 
 生成仍调用原有 `POST /answer`，完整运行记录、状态和引用守卫保持原约定。存在候选但 `answer.case_answers=[]` 时，页面显示支持不足和具体缺口；HTTP／核心状态仍为 `200/ok`，表示流程完成，不表示证据充分或语义审阅通过。
 

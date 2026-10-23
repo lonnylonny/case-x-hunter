@@ -3,17 +3,48 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>资料设置 · Case-X-Hunter</title>
+  <title>设置 · Case-X-Hunter</title>
   <link rel="stylesheet" href="/static/app.css">
   <script src="/static/settings.js" defer></script>
 </head>
 <body>
   <header class="page-header">
-    <h1>资料设置</h1>
-    <nav class="actions" aria-label="页面导航"><a href="/">搜索历史案例</a><a href="/settings" aria-current="page">资料设置</a></nav>
+    <h1>设置</h1>
+    <nav class="actions" aria-label="页面导航"><a href="/">搜索历史案例</a><a href="/settings" aria-current="page">设置</a></nav>
     <p class="notice">上传会整体替换当前案例数据。每个 Case 可有多条 Detail 和多个调查项目，来源与登记时点会一起保留。</p>
   </header>
   <main>
+    <section class="panel" aria-labelledby="model-heading">
+      <h2 id="model-heading">模型与检索</h2>
+      <p>DeepSeek · deepseek-flash · 非思考模式 · JSON 输出 · 温度 0（固定）</p>
+      <p id="model-state" role="status">正在检查密钥配置…</p>
+      <p class="hint">密钥仅在本机 .env 管理，网页不接收密钥。修改密钥后，Docker 用户须重新创建 API 容器；Python 开发入口须重启进程。已配置不代表密钥有效或调用成功。</p>
+      <form id="settings-form">
+        <fieldset id="settings-fields" disabled>
+          <legend>实例设置</legend>
+          <div class="field">
+            <label for="max-tokens">回答输出上限（tokens）</label>
+            <select id="max-tokens" required>
+              <option value="2048">2048</option>
+              <option value="4096">4096（默认）</option>
+            </select>
+            <p class="hint">较小上限可能截断 JSON 回答；截断会报告失败，不会自动重试。此项不限制输入长度，也不保证回答质量。</p>
+          </div>
+          <details class="advanced">
+            <summary>高级检索选项</summary>
+            <div class="field">
+              <label for="top-k">候选条数 Top K</label>
+              <input id="top-k" type="number" min="1" max="10" step="1" required>
+              <p class="hint">1–10 的整数，默认 4；实际候选可能少于设定值，增加候选不保证参考价值更高。</p>
+            </div>
+          </details>
+          <button id="save-settings" type="submit">保存设置</button>
+        </fieldset>
+      </form>
+      <p id="settings-status" class="status" role="status" aria-live="polite">正在读取设置…</p>
+      <button id="reload-settings" type="button" class="secondary">重新读取已保存设置</button>
+      <p class="hint">非密钥设置保存于当前实例，刷新和重启后保留。保存后下一次网页/API 请求生效，无需重启；进行中的回答保持原配置。CLI 实验参数独立。</p>
+    </section>
     <section class="panel" aria-labelledby="dataset-heading">
       <h2 id="dataset-heading">当前数据集</h2>
       <p id="dataset-state" role="status">正在读取数据状态…</p>

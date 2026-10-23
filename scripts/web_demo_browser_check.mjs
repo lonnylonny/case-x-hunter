@@ -295,6 +295,47 @@ try {
     queryInput.value = '   '; form.requestSubmit(submitButton);`);
   check('blank query does not send a request', await evaluate(
     'window.__validationRequests === 0 && statusLine.dataset.kind === "error" && !inFlight'));
+  await send('Page.navigate', { url: new URL('/settings', pageUrl).href });
+  await waitUntil('document.readyState === "complete" && document.getElementById("settings-fields") && !document.getElementById("settings-fields").disabled');
+  await waitUntil('!document.getElementById("model-state").textContent.includes("正在")');
+  check('settings share the upload page and never accept a key', await evaluate(
+    'Boolean(document.getElementById("upload-form")) && !document.querySelector("input[type=password]") && document.getElementById("model-state").textContent.includes("未配置")'));
+  await evaluate('document.querySelector("#settings-form details").open = true; topK.value = "1"; maxTokens.value = "2048"; settingsForm.requestSubmit();');
+  await waitUntil('!settingsBusy');
+  check('settings save returns the effective values', await evaluate(
+    'settingsStatus.textContent.includes("已保存：Top K 1") && settingsStatus.textContent.includes("2048")'));
+  await screenshot('04-settings-desktop.png');
+  await send('Emulation.setDeviceMetricsOverride', {
+    width: 390, height: 844, deviceScaleFactor: 1, mobile: true,
+  });
+  check('settings fit a narrow viewport', await evaluate('document.documentElement.scrollWidth <= window.innerWidth'));
+  await screenshot('04-settings-mobile.png');
+  await send('Page.reload');
+  await waitUntil('document.getElementById("top-k")?.value === "1" && !settingsFields.disabled');
+  check('settings survive page reload', await evaluate('maxTokens.value === "2048"'));
+  await evaluate('topK.value = "11"; settingsForm.requestSubmit();');
+  check('invalid Top K is rejected in the form', await evaluate('!topK.checkValidity() && !settingsBusy'));
+  await execute('await readSettings();');
+  await evaluate(`window.__settingsFetch = window.fetch;
+    window.fetch = async function () {return {ok: false, status: 503, json: async () => ({})};};
+    settingsForm.requestSubmit();`);
+  await waitUntil('!settingsBusy');
+  check('save failure is not reported as success', await evaluate('settingsStatus.textContent.includes("无法确认")'));
+  await execute('await readSettings();');
+  check('read failure disables settings without showing defaults', await evaluate('settingsFields.disabled && topK.value === "" && maxTokens.value === ""'));
+  await execute('window.fetch = window.__settingsFetch; await readSettings();');
+  await send('Page.navigate', { url: pageUrl });
+  await waitUntil('typeof datasetReady !== "undefined" && datasetReady && document.getElementById("runtime-settings").textContent.includes("Top K 1")');
+  await evaluate('queryInput.value = "焊线脱落"; form.requestSubmit(submitButton);');
+  await waitUntil('!inFlight');
+  const configuredSearch = await evaluate(`(async () => JSON.parse(await (await fetch(downloadButton.href)).text()))()`);
+  check('browser search uses the saved Top K', configuredSearch.retrieval.top_k === 1 && configuredSearch.ranking.length === 1);
+  await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 1000, deviceScaleFactor: 1, mobile: false });
+  await evaluate('document.querySelector("#result-body details").open = true;');
+  await screenshot('04-search-settings.png');
+  await execute(`const response = await fetch('/runtime-settings', {method: 'PUT',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify({top_k: 4, max_tokens: 4096})});
+    if (!response.ok) throw new Error('Could not restore demo defaults');`);
   console.log(`${checks - failures.length}/${checks} passed; ${failures.length} failed`);
   process.exitCode = failures.length ? 1 : 0;
 } catch (error) {

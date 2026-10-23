@@ -20,7 +20,7 @@ FROZEN_TABLES = (
     "evidence_checkpoints", "case_groups", "case_group_memberships",
 )
 # 辅助表：结构版本标记与快照元数据（任务包 §6 允许一张辅助快照元数据表）。
-AUXILIARY_TABLES = ("schema_version", "snapshot_metadata")
+AUXILIARY_TABLES = ("schema_version", "snapshot_metadata", "runtime_settings")
 
 _SCHEMA_NAME_PATTERN = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 

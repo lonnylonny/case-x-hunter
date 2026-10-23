@@ -31,6 +31,7 @@ import re
 from typing import Annotated
 
 from fastapi import FastAPI, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
@@ -59,6 +60,8 @@ from casetrace.data.csv_import import CsvImportError, MAX_UPLOAD_BYTES, PLACEHOL
 from casetrace.data.constants import CHECKPOINT_TYPES, DETECTION_STAGES, RELEVANCE_VALUES
 from casetrace.storage.connection import connect
 from casetrace.storage.snapshot import LoadedSnapshot, replace_csv_snapshot
+from casetrace.settings import RuntimeSettings
+from casetrace.storage.settings import load_settings, save_settings
 
 # 模型工厂：核心在确需生成时才调用它；应用创建、health 与无效请求都不构造模型。
 ModelFactory = Callable[[], ChatModel]
@@ -108,7 +111,7 @@ class AnswerRequest(BaseModel):
     """`POST /answer` 的请求体：只有三个字段，额外字段一律拒绝（422）。
 
     `query` 保留原始文本，不改写、截断或从历史反填；`known_at` 必须与当前数据集
-    的登记日期一致，读库后核对；`top_k` 是严格正整数，默认 4。
+    的登记日期一致，读库后核对；`top_k` 是 1–10 的严格整数，省略时使用实例设置。
     """
 
     model_config = ConfigDict(
@@ -126,11 +129,17 @@ class AnswerRequest(BaseModel):
     known_at: date = Field(
         description="语料可用时点 YYYY-MM-DD；须与 GET /dataset 的当前登记日期一致",
     )
-    top_k: StrictInt = Field(
-        default=DEFAULT_TOP_K,
-        gt=0,
-        description=f"阅读前 k 条候选；默认 {DEFAULT_TOP_K}，必须为正整数",
+    top_k: StrictInt | None = Field(
+        default=None, gt=0, le=10,
+        description="阅读前 k 条候选；省略时使用已保存的实例设置（初始为 4），显式值须为 1–10 的整数",
     )
+
+    @field_validator("top_k", mode="before")
+    @classmethod
+    def _reject_explicit_null(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("top_k 请省略或填写 1–10 的整数，不接受 null")
+        return value
 
     @field_validator("query")
     @classmethod
@@ -322,6 +331,11 @@ def _outcome_response(outcome: AnswerOutcome) -> JSONResponse:
                           _redacted_record(outcome.record, message))
 
 
+def read_runtime_settings(schema: str) -> RuntimeSettings:
+    with connect() as connection:
+        return load_settings(connection, schema=schema)
+
+
 def create_app(
     *, db_schema: str = DEFAULT_SCHEMA, model_factory: ModelFactory | None = None,
 ) -> FastAPI:
@@ -332,9 +346,18 @@ def create_app(
     """
 
     app = FastAPI(title=API_TITLE, version="0.1.0", description=API_DESCRIPTION)
+
+    @app.exception_handler(RequestValidationError)
+    async def safe_validation_error(request: Request, error: RequestValidationError) -> JSONResponse:
+        # 保留字段定位与原因，不把意外提交的凭据通过默认 input/ctx 字段回显。
+        return JSONResponse(status_code=422, content={"detail": [
+            {key: item[key] for key in ("loc", "msg", "type")}
+            for item in error.errors()
+        ]})
     # 配置只挂在 app.state：写到哪、路由就从哪读，避免出现第二份会漂移的来源。
     app.state.db_schema = db_schema
-    app.state.model_factory = model_factory or (lambda: build_model(DEFAULT_MODEL))
+    default_model_factory = lambda: build_model(DEFAULT_MODEL)
+    app.state.model_factory = model_factory or default_model_factory
     app.state.model_factory_supplied = model_factory is not None
 
     # 静态资源目录按模块位置定位；挂载只登记目录，不读库、不构造模型。
@@ -432,6 +455,24 @@ def create_app(
         load_local_env()
         return ModelStatusResponse(configured=bool(os.environ.get(API_KEY_ENV, "").strip()))
 
+    @app.get("/runtime-settings", response_model=RuntimeSettings)
+    def runtime_settings() -> RuntimeSettings | JSONResponse:
+        try:
+            return read_runtime_settings(app.state.db_schema)
+        except (ValueError, OSError, RuntimeError, psycopg.Error):
+            return _json_response(503, SERVICE_UNAVAILABLE,
+                                  "无法读取实例设置；请检查数据库并运行启动准备。", None)
+
+    @app.put("/runtime-settings", response_model=RuntimeSettings)
+    def update_runtime_settings(settings: RuntimeSettings) -> RuntimeSettings | JSONResponse:
+        try:
+            with connect() as connection:
+                saved = save_settings(connection, settings, schema=app.state.db_schema)
+            return saved
+        except (ValueError, OSError, RuntimeError, psycopg.Error):
+            return _json_response(503, SERVICE_UNAVAILABLE,
+                                  "无法确认设置已保存；请检查数据库并重新读取设置。", None)
+
     @app.post(
         "/search", response_model=AnswerResponse, summary="检索历史案例与证据，不调用模型",
         responses={503: {"model": AnswerResponse, "description": "数据库或快照前提不可用"},
@@ -441,6 +482,11 @@ def create_app(
         try:
             schema = app.state.db_schema
             try:
+                settings = read_runtime_settings(schema)
+            except (ValueError, OSError, RuntimeError, psycopg.Error):
+                return _json_response(503, SERVICE_UNAVAILABLE, "无法读取实例设置，请检查数据库并运行启动准备。", None)
+            top_k = request.top_k if request.top_k is not None else settings.top_k
+            try:
                 loaded = load_database_snapshot(schema)
             except (ValueError, OSError):
                 return _json_response(503, SERVICE_UNAVAILABLE, DB_PREREQUISITE_MESSAGE, None)
@@ -448,7 +494,7 @@ def create_app(
             if date_error is not None:
                 return date_error
             run = prepare_answer_run(
-                request.query, request.known_at, top_k=request.top_k,
+                request.query, request.known_at, top_k=top_k,
                 loaded_snapshot=loaded, db_schema=schema,
             )
             inputs = run.inputs
@@ -483,6 +529,15 @@ def create_app(
         try:
             schema = app.state.db_schema
             try:
+                settings = read_runtime_settings(schema)
+            except (ValueError, OSError, RuntimeError, psycopg.Error):
+                return _json_response(503, SERVICE_UNAVAILABLE, "无法读取实例设置，请检查数据库并运行启动准备。", None)
+            top_k = request.top_k if request.top_k is not None else settings.top_k
+            # 配置为本次请求的不可变快照；只在有候选、确需生成时构造模型。
+            model_factory = app.state.model_factory if app.state.model_factory is not default_model_factory else (
+                lambda: build_model(DEFAULT_MODEL, max_tokens=settings.max_tokens)
+            )
+            try:
                 loaded = load_database_snapshot(schema)
             except (ValueError, OSError):
                 # 只在读库入口捕获配置、连接、未导入或内容检查失败。
@@ -492,7 +547,7 @@ def create_app(
                 return date_error
             outcome = run_answer_question(
                 request.query, request.known_at,
-                model_factory=app.state.model_factory, query_id=None, top_k=request.top_k,
+                model_factory=model_factory, query_id=None, top_k=top_k,
                 loaded_snapshot=loaded, db_schema=schema,
             )
             return _outcome_response(outcome)

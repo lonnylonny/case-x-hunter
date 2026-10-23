@@ -82,7 +82,7 @@ uv run --locked python -m casetrace.storage verify
 
 加 `--test` 使用测试库；加 `--schema casetrace_test_example` 可指定独立 schema。
 
-- `init` 执行 [`storage/sql/schema.sql`](../../src/casetrace/storage/sql/schema.sql)，建立 15 张业务表和 `schema_version`、`snapshot_metadata` 两张辅助表。重复执行保留数据；结构标记 `002` 与既有库兼容，不再按迁移台账逐版本升级。
+- `init` 执行 [`storage/sql/schema.sql`](../../src/casetrace/storage/sql/schema.sql)，建立 15 张业务表和 `schema_version`、`snapshot_metadata`、`runtime_settings` 三张辅助表。重复执行保留数据；实例设置不参与快照摘要或上传替换，重复初始化保留已保存值。结构标记 `002` 与既有库兼容，不再按迁移台账逐版本升级。
 - `import` 核对已记录的语料与主数据文件哈希，一次读取 Excel，复用已有 CR/GR/来源校验，在一个事务内写入主数据、实体、关系及元数据。数据库负责必填、主外键、唯一性、枚举、数量和日期约束。
 - 已导入相同快照时，`import` 复用读回内容检查后返回 `no_op`。不同快照、已改动内容或未登记的业务数据明确拒绝；失败整体回滚。当前 schema 的元数据表锁让两个导入顺序执行。
 - `verify` 是显式诊断命令，报告文件身份、完整快照身份（含可用时点与依据）和完整内容是否一致；失败返回 1。文件身份不符时直接报告，无需继续解析。逐实体、`ReferenceData` 与检索文档的对照由集成测试覆盖。

@@ -18,6 +18,14 @@ from casetrace.storage.connection import TEST_DATABASE_URL_ENV
 
 
 @pytest.fixture(autouse=True)
+def forbid_live_models(monkeypatch):
+    """存储回归只用模型回放；替身接入出错也不能调用付费服务。"""
+    def forbidden(*args, **kwargs):
+        raise AssertionError("数据库测试禁止构造真实模型客户端")
+    monkeypatch.setattr("casetrace.answer.model._build_client", forbidden)
+
+
+@pytest.fixture(autouse=True)
 def _restore_env_after_test():
     """load_local_env 会写 os.environ，测试后恢复，避免污染其它测试模块。
 

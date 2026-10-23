@@ -18,6 +18,7 @@ from casetrace.storage.connection import resolve_database_url
 from casetrace.storage.snapshot import prepare_snapshot
 from casetrace.answer.context import DEV_V3_SNAPSHOT
 from casetrace.answer.model import OfflineChatModel
+from casetrace.data.csv_import import COLUMNS
 
 ROOT = Path(__file__).resolve().parents[2]
 DATASET = ROOT / 'data/dev/demo-v3.json'
@@ -128,6 +129,7 @@ def test_invalid_rows_are_locatable_and_preserve_old_dataset(upload_client, colu
 @pytest.mark.parametrize('raw,expected_column', [
     (b'case_id\nC1\n', 'record_type'), (b'\xff\xfe', 'file'), (b'', 'record_type'),
     (b'"unterminated', 'file'),
+    ((",".join([*COLUMNS, *(["case_id"] * 5000)]) + "\n").encode(), 'case_id'),
 ])
 def test_parse_errors_leave_current_data_unchanged(upload_client, raw, expected_column):
     before = upload_client.get('/dataset').json()
@@ -161,6 +163,8 @@ def test_write_failure_rolls_back_deleted_rows_and_metadata(upload_client, stora
 def test_restart_preparation_and_new_app_preserve_uploaded_dataset(
     upload_client, storage_connection, scratch_schema, tmp_path,
 ):
+    settings = {'top_k': 2, 'max_tokens': 2048}
+    assert upload_client.put('/runtime-settings', json=settings).status_code == 200
     original_files = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in (DATASET, REFERENCE)}
     assert upload_example(upload_client).status_code == 200
     before = upload_client.get('/dataset').json()
@@ -170,6 +174,7 @@ def test_restart_preparation_and_new_app_preserve_uploaded_dataset(
     restarted = TestClient(api.create_app(db_schema=scratch_schema))
     assert prepared.status == 'preserved'
     assert restarted.get('/dataset').json() == before
+    assert restarted.get('/runtime-settings').json() == settings
     assert search(restarted).json()['record']['ranking'][0]['case_id'] == 'UPLOAD_C001'
     assert {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in original_files} == original_files
 
@@ -305,6 +310,8 @@ def test_api_process_restart_preserves_current_data(upload_client, scratch_schem
 
     assert upload_example(upload_client).status_code == 200
     expected = upload_client.get('/dataset').json()
+    settings = {'top_k': 2, 'max_tokens': 2048}
+    assert upload_client.put('/runtime-settings', json=settings).status_code == 200
     env = {**os.environ, 'CASETRACE_DATABASE_URL': resolve_database_url(test=True),
            'DEEPSEEK_API_KEY': '', 'CASETRACE_CONTAINER': '0'}
     code = ('import sys, uvicorn; from casetrace.api import create_app; '
@@ -329,6 +336,7 @@ def test_api_process_restart_preserves_current_data(upload_client, scratch_schem
                         pytest.fail('独立 API 进程未能启动')
                     time.sleep(0.05)
                 assert client.get('/dataset').json() == expected
+                assert client.get('/runtime-settings').json() == settings
                 response = search(client)
                 assert response.status_code == 200
                 assert response.json()['record']['ranking'][0]['case_id'] == 'UPLOAD_C001'

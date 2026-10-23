@@ -75,11 +75,11 @@ def test_settings_and_upload_assets_are_available_without_dependencies(client):
 def test_index_has_input_contract_and_defaults(client):
     page = client.get("/").text
 
-    for element in ('id="query"', 'id="known-at"', 'id="top-k"', 'id="submit-button"'):
+    for element in ('id="query"', 'id="known-at"', 'id="runtime-settings"', 'id="submit-button"'):
         assert element in page
     # 默认快照日期与默认 top_k 写在页面上，且引用相对静态资源。
     assert 'value="2026-09-15"' in page
-    assert 'value="4"' in page
+    assert 'value="4"' not in page  # 实际设置从服务端读取
     for asset in ASSETS:
         assert asset in page
     # 页面壳不包含任何结果占位，避免把空状态误读成成功。

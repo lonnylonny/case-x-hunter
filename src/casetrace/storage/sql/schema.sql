@@ -193,3 +193,12 @@ CREATE INDEX IF NOT EXISTS case_details_product_id_idx ON case_details (product_
 CREATE INDEX IF NOT EXISTS evidence_checkpoints_case_id_idx ON evidence_checkpoints (case_id);
 CREATE INDEX IF NOT EXISTS case_group_memberships_case_id_idx ON case_group_memberships (case_id);
 
+-- 非密钥实例设置独立于业务资料，重复 prepare 不重置已保存值。
+CREATE TABLE IF NOT EXISTS runtime_settings (
+    singleton boolean PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+    top_k integer NOT NULL CHECK (top_k BETWEEN 1 AND 10),
+    max_tokens integer NOT NULL CHECK (max_tokens IN (2048, 4096))
+);
+INSERT INTO runtime_settings (singleton, top_k, max_tokens)
+VALUES (TRUE, 4, 4096) ON CONFLICT (singleton) DO NOTHING;
+

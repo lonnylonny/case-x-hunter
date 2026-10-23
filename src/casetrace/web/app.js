@@ -12,7 +12,6 @@
  */
 
 const SNAPSHOT_DATE = '2026-09-15';
-const DEFAULT_TOP_K = 4;
 // 使用经工程师确认的既有 Development Query 原文；不自动发起请求。
 const EXAMPLE_QUERIES = {
   Q001: 'PROD_001 在 OQC 发现焊线脱落，拉力检查显示焊点剥离，涉及客户 CUS_001、生产批 DEV_PL_001、客户批 DEV_CL_001，原因尚未确认。',
@@ -56,7 +55,6 @@ const CONTEXT_LABELS = {
 const form = document.getElementById('answer-form');
 const queryInput = document.getElementById('query');
 const knownAtInput = document.getElementById('known-at');
-const topKInput = document.getElementById('top-k');
 const submitButton = document.getElementById('submit-button');
 const generateButton = document.getElementById('generate-button');
 const exampleSelect = document.getElementById('example-query');
@@ -71,6 +69,8 @@ const downloadButton = document.getElementById('download-button');
 let inFlight = false;
 let modelConfigured = false;
 let datasetReady = false;
+let datasetSnapshotId = null;
+let datasetLoadSequence = 0;
 // 当前下载对象 URL；替换或清除时必须 revoke，避免泄漏。
 let downloadUrl = null;
 
@@ -142,7 +142,7 @@ function setStatus(text, kind) {
 
 function setBusy(busy) {
   inFlight = busy;
-  for (const element of [queryInput, knownAtInput, topKInput, submitButton, exampleButton, exampleSelect]) {
+  for (const element of [queryInput, knownAtInput, submitButton, exampleButton, exampleSelect]) {
     element.disabled = busy;
   }
   generateButton.disabled = busy || !modelConfigured;
@@ -328,6 +328,10 @@ function renderRunSummary(record) {
   technical.append(fieldBlock('快照 ID', snapshot.snapshot_id || '（未提供）'));
   technical.append(fieldBlock('检索方法与候选数',
     `${retrieval.requested_method || '（未提供）'}／top_k=${formatValue(retrieval.top_k)}`));
+  if (record.request) {
+    technical.append(fieldBlock('本次模型参数',
+      `输出上限 ${formatValue(record.request.max_tokens)} tokens／温度 ${formatValue(record.request.temperature)}`));
+  }
   technical.append(fieldBlock('资料审阅状态', corpus.review_status || '（未提供）'));
   section.append(technical);
   section.append(node('p', 'hint',
@@ -733,7 +737,7 @@ async function loadModelStatus() {
     modelConfigured = body.configured;
     modelStatusLine.textContent = modelConfigured
       ? '模型已配置。点击“生成调查参考”会调用模型，可能产生费用；配置状态不保证调用成功。'
-      : '模型生成未配置，可先搜索并查看证据；请在本机 .env 配置密钥后重启服务。';
+      : '模型生成未配置，可先搜索并查看证据；密钥配置与生效步骤见设置页。';
   } catch (error) {
     modelConfigured = false;
     modelStatusLine.textContent = '无法读取模型配置状态，搜索仍可使用；请检查服务后刷新页面。';
@@ -742,22 +746,45 @@ async function loadModelStatus() {
 }
 
 async function loadDatasetStatus() {
+  const sequence = ++datasetLoadSequence;
+  datasetReady = false;
   const line = document.getElementById('current-dataset');
+  line.textContent = '正在读取当前数据集…';
   try {
-    const response = await fetch('/dataset');
+    const response = await fetch('/dataset', { cache: 'no-store' });
     const data = await response.json();
-    if (!response.ok || typeof data.known_at !== 'string') throw new Error('dataset unavailable');
+    if (sequence !== datasetLoadSequence) return;
+    if (!response.ok || typeof data.known_at !== 'string'
+      || typeof data.snapshot_id !== 'string' || !data.snapshot_id) throw new Error('dataset unavailable');
+    if (datasetSnapshotId !== null && datasetSnapshotId !== data.snapshot_id) {
+      clearResult();
+      if (!inFlight) setStatus('当前数据集已更新，请重新搜索。', 'info');
+    }
+    datasetSnapshotId = data.snapshot_id;
     knownAtInput.value = data.known_at;
     line.textContent = `当前数据集：${data.name} · ${data.case_count} 个案例 · 更新于 ${data.updated_at}`;
     exampleDisclosure.hidden = data.is_upload;
     datasetReady = true;
   } catch (error) {
+    if (sequence !== datasetLoadSequence) return;
     datasetReady = false;
     line.textContent = '无法读取当前数据集，请检查服务与数据库后刷新页面。';
   }
 }
 
-/** 把表单读成 API 契约的三字段；不合法时返回 { error, focus }。 */
+async function loadRuntimeSettings() {
+  const line = document.getElementById('runtime-settings');
+  try {
+    const response = await fetch('/runtime-settings', { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok) throw new Error('unavailable');
+    line.textContent = `已保存设置：Top K ${data.top_k} · 回答输出上限 ${data.max_tokens} tokens。提交时读取最新设置，本次实际值见结果。`;
+  } catch (error) {
+    line.textContent = '无法读取实例设置，请检查服务与数据库。不会以默认值替代；提交结果以服务端响应为准。';
+  }
+}
+
+/** 网页省略 top_k，服务端在请求开始读取已保存值。 */
 function readForm() {
   const query = queryInput.value;
   if (!query.trim()) {
@@ -767,11 +794,7 @@ function readForm() {
   if (!knownAt) {
     return { error: '请刷新页面以读取当前数据集的登记日期。', focus: knownAtInput };
   }
-  const topK = Number(topKInput.value.trim());
-  if (!Number.isInteger(topK) || topK <= 0) {
-    return { error: 'top_k 必须是正整数。', focus: topKInput };
-  }
-  return { request: { query, known_at: knownAt, top_k: topK } };
+  return { request: { query, known_at: knownAt } };
 }
 
 async function submitRequest(event) {
@@ -832,6 +855,11 @@ async function submitRequest(event) {
 
   try {
     present(response.status, body, mode);
+    const resultSnapshotId = body.record?.snapshot?.snapshot_id;
+    if (datasetSnapshotId && resultSnapshotId && resultSnapshotId !== datasetSnapshotId) {
+      resultBody.prepend(node('p', 'callout warning',
+        '这次请求使用更新前的数据集，以下结果及下载记录仍属于此前资料。请重新搜索以查询当前数据集。'));
+    }
   } catch (error) {
     // 渲染意外失败也不把页面留在半成品状态。
     renderUnreadable('页面处理响应时出错', '本次未得到可用结果，输入已保留，可手动重试。');
@@ -844,8 +872,12 @@ async function submitRequest(event) {
 form.addEventListener('submit', submitRequest);
 exampleButton.addEventListener('click', fillExample);
 
-// 初始值固定为服务端支持的快照与默认 top_k；初次加载不自动提交。
+// 初次加载不自动搜索或调用模型。
 knownAtInput.value = SNAPSHOT_DATE;
-topKInput.value = String(DEFAULT_TOP_K);
 loadModelStatus();
 loadDatasetStatus();
+loadRuntimeSettings();
+window.addEventListener('pageshow', event => {
+  loadRuntimeSettings();
+  if (event.persisted) loadDatasetStatus();
+});
