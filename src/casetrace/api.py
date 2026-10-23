@@ -6,6 +6,8 @@ API 不复制业务流程，也不改数据、qrels 或既有 CLI 行为。
 
 M6-02 在同一应用上增加 `GET /` 单页与 `/static/` 资源（`src/casetrace/web/`）：
 页面按模块位置定位，读取时不连接数据库、不构造模型，浏览器用相对地址同源请求 `/answer`。
+展示升级 02 增加 `/search` 复用检索及上下文核心，不触发生成；`/model-status`
+只返回配置布尔值，不构造客户端、不连接数据库。
 
 HTTP 边界（docs/development/api.md）：
 
@@ -23,6 +25,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import date, datetime
+import os
 from pathlib import Path
 import re
 
@@ -42,8 +45,12 @@ from casetrace.answer.cli import (
     load_database_snapshot,
     run_answer_question,
 )
-from casetrace.answer.context import DEFAULT_TOP_K, DEV_V3_SNAPSHOT, SnapshotError
-from casetrace.answer.model import DEFAULT_MODEL, ChatModel, ModelConfigError
+from casetrace.answer.context import (
+    DEFAULT_TOP_K, DEV_V3_SNAPSHOT, SnapshotError,
+    build_evidence_context, context_to_payload, prepare_answer_run,
+)
+from casetrace.answer.model import API_KEY_ENV, DEFAULT_MODEL, ChatModel, ModelConfigError
+from casetrace.env import load_local_env
 from casetrace.storage.schema import DEFAULT_SCHEMA
 
 # 模型工厂：核心在确需生成时才调用它；应用创建、health 与无效请求都不构造模型。
@@ -72,11 +79,17 @@ class HealthResponse(BaseModel):
     status: str = "ok"
 
 
-class AnswerResponse(BaseModel):
-    """`POST /answer` 的响应外壳。
+class ModelStatusResponse(BaseModel):
+    """只报告是否有凭据或注入模型；不构造客户端、不验证服务可用性。"""
 
-    顶层 `status` 与 `record["status"]` 一致；`record` 沿用核心的完整运行记录，
-    不在这里逐层复制 dataclass 或业务模型。数据库前提失败时 `record` 为 null。
+    configured: bool
+
+
+class AnswerResponse(BaseModel):
+    """检索与回答共用的响应外壳。
+
+    顶层 `status` 与 `record["status"]` 一致；回答沿用核心完整运行记录，检索
+    返回排名与证据且 answer=null。数据库前提失败时 `record` 为 null。
     """
 
     status: str
@@ -266,6 +279,7 @@ def create_app(
     # 配置只挂在 app.state：写到哪、路由就从哪读，避免出现第二份会漂移的来源。
     app.state.db_schema = db_schema
     app.state.model_factory = model_factory or (lambda: build_model(DEFAULT_MODEL))
+    app.state.model_factory_supplied = model_factory is not None
 
     # 静态资源目录按模块位置定位；挂载只登记目录，不读库、不构造模型。
     app.mount(STATIC_URL, StaticFiles(directory=WEB_DIR), name="static")
@@ -279,6 +293,51 @@ def create_app(
     @app.get("/health", response_model=HealthResponse, summary="进程存活检查")
     def health() -> HealthResponse:
         return HealthResponse()
+
+    @app.get("/model-status", response_model=ModelStatusResponse, summary="模型配置状态（不调用模型）")
+    def model_status() -> ModelStatusResponse:
+        if app.state.model_factory_supplied:
+            return ModelStatusResponse(configured=True)
+        load_local_env()
+        return ModelStatusResponse(configured=bool(os.environ.get(API_KEY_ENV, "").strip()))
+
+    @app.post(
+        "/search", response_model=AnswerResponse, summary="检索历史案例与证据，不调用模型",
+        responses={503: {"model": AnswerResponse, "description": "数据库或快照前提不可用"},
+                   500: {"model": AnswerResponse, "description": "未预期错误"}},
+    )
+    def search(request: AnswerRequest) -> JSONResponse:
+        try:
+            schema = app.state.db_schema
+            try:
+                loaded = load_database_snapshot(schema)
+            except (ValueError, OSError):
+                return _json_response(503, SERVICE_UNAVAILABLE, DB_PREREQUISITE_MESSAGE, None)
+            run = prepare_answer_run(
+                request.query, request.known_at, top_k=request.top_k,
+                loaded_snapshot=loaded, db_schema=schema,
+            )
+            inputs = run.inputs
+            context = build_evidence_context(
+                inputs.query, inputs.hits, inputs.records, inputs.reference, inputs.sources,
+            )
+            status = "retrieved" if context.cases else STATUS_NO_HITS
+            record = {
+                "record_version": "search-run-1", "status": status,
+                "query": {"text": request.query, "known_at": request.known_at.isoformat()},
+                **run.run_metadata,
+                "context": context_to_payload(context),
+                "response": {"called_model": False}, "answer": None,
+            }
+            message = (
+                "已检索历史候选及证据原文，未调用模型；候选不等于已确认相关案例。"
+                if context.cases else "没有检索候选，未调用模型；这不表示资料库不存在相关案例。"
+            )
+            return _json_response(200, status, message, record)
+        except SnapshotError:
+            return _json_response(503, SERVICE_UNAVAILABLE, DB_PREREQUISITE_MESSAGE, None)
+        except Exception:
+            return _json_response(500, INTERNAL_ERROR, UNEXPECTED_MESSAGE, None)
 
     @app.post(
         "/answer", response_model=AnswerResponse, responses=ANSWER_RESPONSES,

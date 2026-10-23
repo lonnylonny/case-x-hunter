@@ -103,8 +103,7 @@ def test_page_does_not_expose_credentials_or_infrastructure(client):
     script = client.get("/static/app.js").text
     for field in ("query", "known_at", "top_k"):
         assert field in script
-    assert 'fetch("/answer"' not in script  # 使用同源相对地址
-    assert "fetch('/answer'" in script
+    assert "'/search' : '/answer'" in script  # 两个动作均使用同源相对地址
 
 
 def test_existing_api_surface_is_unchanged(client):

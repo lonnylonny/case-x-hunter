@@ -86,6 +86,34 @@ def no_model():
     raise AssertionError("这条路线不应构造模型")
 
 
+def test_search_without_key_matches_saved_rankings_and_context(api_database, monkeypatch):
+    schema, _ = api_database
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "")
+    monkeypatch.setattr(api, "build_model", lambda name: no_model())
+    client = TestClient(create_app(db_schema=schema))
+    assert client.get("/model-status").json() == {"configured": False}
+
+    for query_id in ("q001", "q002", "q003", "q005"):
+        saved = saved_v10(query_id)
+        response = client.post("/search", json={
+            "query": saved["query"]["text"], "known_at": "2026-09-15",
+        })
+        assert response.status_code == 200, query_id
+        body = response.json()
+        assert body["status"] == "retrieved", query_id
+        record = body["record"]
+        assert record["ranking"] == saved["ranking"], query_id
+        assert record["context"] == saved["context"], query_id
+        assert record["query"]["text"] == saved["query"]["text"], query_id
+        assert record["corpus"]["data_source"] == "postgres"
+        assert record["response"]["called_model"] is False
+        assert record["answer"] is None
+
+    empty = client.post("/search", json={"query": "zzzxqv987654", "known_at": "2026-09-15"})
+    assert empty.json()["status"] == "no_hits"
+    assert empty.json()["record"]["context"]["cases"] == []
+
+
 # ── 1. 五 Query：HTTP 与文件路线等价，并与 v10 对照 ──────────────────────
 
 def test_api_matches_file_route_and_v10(api_database, monkeypatch):

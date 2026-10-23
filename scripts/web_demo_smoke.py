@@ -34,7 +34,7 @@ import uvicorn
 
 from casetrace.api import create_app
 from casetrace.answer.context import DEV_V3_SNAPSHOT
-from casetrace.answer.model import OfflineChatModel
+from casetrace.answer.model import API_KEY_ENV, OfflineChatModel
 from casetrace.env import load_local_env
 from casetrace.storage import (
     DATABASE_URL_ENV,
@@ -56,6 +56,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host", default="127.0.0.1", help="监听地址；默认只绑定本机")
     parser.add_argument("--port", type=int, default=8010, help="监听端口，默认 8010")
     parser.add_argument("--query-id", default="q005", help="回放的 v10 运行记录，默认 q005")
+    parser.add_argument("--search-only", action="store_true", help="强制不配置模型，只验证搜索与证据")
     return parser.parse_args()
 
 
@@ -124,7 +125,12 @@ def main() -> int:
         calls.append({"model": model.model_id})
         return model
 
-    app = create_app(db_schema=schema, model_factory=offline_factory)
+    if args.search_only:
+        # 空环境值优先于 .env，确保本验收进程不能使用本机真实凭据。
+        os.environ[API_KEY_ENV] = ""
+        app = create_app(db_schema=schema)
+    else:
+        app = create_app(db_schema=schema, model_factory=offline_factory)
     query, known_at = saved["query"]["text"], saved["query"]["known_at"]
     print(f"临时 schema：{schema}（退出时删除）")
     print(f"离线回放：{record_path.name}｜status={saved['status']}｜真实模型调用 0")

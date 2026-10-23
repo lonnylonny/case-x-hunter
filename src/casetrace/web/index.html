@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>CaseTrace 历史案例参考</title>
+  <title>Case-X-Hunter 历史案例参考</title>
   <link rel="stylesheet" href="/static/app.css">
   <script src="/static/app.js" defer></script>
 </head>
 <body>
   <header class="page-header">
-    <h1>CaseTrace 历史案例参考</h1>
+    <h1>Case-X-Hunter 历史案例参考</h1>
     <p class="notice" role="note">
-      本页把当前已知异常交给固定 R3 检索与 Grounded Answer 链路，返回可追溯的历史调查参考。
-      <strong>历史参考不判断当前 Incident 的最终 Root Cause，历史原因与措施也不等于当前结论或当前建议。</strong>
+      搜索历史案例与检查证据，配置模型后可生成有来源的调查参考。
+      <strong>历史原因与措施不等于当前异常的最终根因或当前建议。</strong>
     </p>
   </header>
 
@@ -20,28 +20,47 @@
     <section class="panel" aria-labelledby="input-heading">
       <h2 id="input-heading">当前已知异常</h2>
       <form id="answer-form" novalidate>
-        <div class="field">
-          <label for="query">Query（当前已知信息原文）</label>
+        <div class="field query-field">
+          <label for="query">当前已知信息</label>
           <textarea id="query" name="query" rows="5" required
             placeholder="例如：OQC 拉力试验显示焊线自焊盘脱开，原因尚未确认。"></textarea>
           <p class="hint">原文发送给服务端，不改写、不截断；空白 Query 不会提交。</p>
         </div>
-        <div class="field-row">
-          <div class="field">
-            <label for="known-at">快照日期 known_at</label>
-            <input id="known-at" name="known_at" type="date" value="2026-09-15" required>
-            <p class="hint">当前仅支持 dev-v3 的已记录快照 2026-09-15；这不表示可按任意历史时点过滤。</p>
-          </div>
-          <div class="field">
-            <label for="top-k">候选条数 top_k</label>
-            <input id="top-k" name="top_k" type="number" value="4" min="1" step="1" required>
-            <p class="hint">阅读前 k 条候选，必须是正整数；默认 4。</p>
-          </div>
+        <p id="model-status" class="hint" role="status">正在检查模型配置；搜索无需模型密钥。</p>
+        <div class="actions search-actions">
+          <button id="submit-button" type="submit">搜索历史案例</button>
+          <button id="generate-button" type="submit" class="secondary" disabled>生成调查参考</button>
         </div>
-        <div class="actions">
-          <button id="submit-button" type="submit">提交请求</button>
-          <button id="example-button" type="button" class="secondary">填入示例 Query</button>
-        </div>
+        <details id="example-explorer" class="input-option">
+          <summary>试用示例</summary>
+          <div class="field">
+            <label for="example-query">合成示例问题</label>
+            <div class="example-row">
+              <select id="example-query">
+                <option value="Q001">A · 焊线脱落与界面剥离</option>
+                <option value="Q002">B · 声学扫描发现塑封空洞</option>
+                <option value="Q003">C · 客户收货后的 BGA 缺球</option>
+              </select>
+              <button id="example-button" type="button" class="secondary">填入示例</button>
+            </div>
+            <p class="hint">全部为合成资料，历史案例仍待人工审阅。填入后可修改，不会自动提交。</p>
+          </div>
+        </details>
+        <details class="advanced">
+          <summary>高级检索选项</summary>
+          <div class="field-row">
+            <div class="field">
+              <label for="known-at">资料可用时点</label>
+              <input id="known-at" name="known_at" type="date" value="2026-09-15" required>
+              <p class="hint">当前示例固定为 2026-09-15，不支持任意历史日期过滤。</p>
+            </div>
+            <div class="field">
+              <label for="top-k">候选条数 top_k</label>
+              <input id="top-k" name="top_k" type="number" value="4" min="1" step="1" required>
+              <p class="hint">阅读前 k 条候选，必须是正整数；默认 4。</p>
+            </div>
+          </div>
+        </details>
       </form>
     </section>
 
@@ -53,7 +72,7 @@
     <section class="panel" aria-labelledby="result-heading">
       <h2 id="result-heading">历史参考</h2>
       <div id="result-body">
-        <p class="hint">提交后在这里显示本次请求的回答、候选排名、来源与不足。</p>
+        <p class="hint">搜索后可查看候选案例与证据原文；生成调查参考后可查看采用理由和当前信息缺口。</p>
       </div>
       <div class="actions">
         <a id="download-button" class="button secondary" hidden>下载本次运行记录（JSON）</a>

@@ -35,7 +35,7 @@ curl --fail-with-body http://127.0.0.1:8000/health          # {"status":"ok"}
 
 ## 请求
 
-`POST /answer` 的 JSON 对象只有三个字段，额外字段拒绝（422）：
+`POST /search` 与 `POST /answer` 的 JSON 对象只有三个字段，额外字段拒绝（422）：
 
 | 字段 | 约定 |
 |---|---|
@@ -92,6 +92,22 @@ HTTP 与 `status` 的映射：
 数据库读取错误在读库入口处理；核心中的快照身份/时点错误用 `SnapshotError` 标记并返回 503。模型构造、检索或响应输出阶段的其它未预期异常返回 500，不误报为数据库故障。
 
 客户端以 HTTP 与 `status` 判断成功：格式／引用失败即使记录里带模型文本，也不能当成成功展示。模型失败记录里的 SDK 异常原文会在 HTTP 返回的副本中换成固定安全说明（保留错误类型、调用标记及其余证据）；`service_unavailable` 只是网络边界状态，不是核心业务状态。
+
+## 无密钥检索与模型配置状态（展示升级 02）
+
+`POST /search` 与回答使用相同数据库读回、R3、快照检查和证据上下文函数；不构造客户端、不调用模型。请求字段与上表一致：
+
+```bash
+curl --fail-with-body http://127.0.0.1:8000/search \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"焊线脱落，已排除运输碰伤","known_at":"2026-09-15","top_k":4}'
+```
+
+响应沿用 `status`、`message`、`record` 外壳。HTTP 200 的 `status` 为 `retrieved` 或 `no_hits`；记录版本为 `search-run-1`，含原始 `query`、`snapshot`、`corpus`、`retrieval`、`ranking`、`context`、`notes`，并明确 `response.called_model=false`、`answer=null`。检索候选不是已确认相关案例，不用分数判断支持充分；此记录不是模型回答或引用校验结果。422、503、500 的含义沿用上表。
+
+`GET /model-status` 只返回 `{"configured":true}` 或 `{"configured":false}`。服务端沿用环境变量优先、本机 `.env` 兜底的规则；注入模型工厂的离线测试服务也报告已配置。此接口不连接数据库、不构造模型、不联网验证凭据，不返回密钥或参数明文。配置存在不保证实际调用成功；修改 `.env` 后重启服务或重新运行 Docker 入口。
+
+生成仍调用原有 `POST /answer`，完整运行记录、状态和引用守卫保持原约定。存在候选但 `answer.case_answers=[]` 时，页面显示支持不足和具体缺口；HTTP／核心状态仍为 `200/ok`，表示流程完成，不表示证据充分或语义审阅通过。
 
 ## 边界与限制
 
