@@ -127,10 +127,6 @@ def test_openapi_has_request_and_response_examples(client):
             {"json": {"query": "焊线脱落", "known_at": 1757894400}}, id="timestamp-known-at",
         ),
         pytest.param(
-            {"json": {"query": "焊线脱落", "known_at": "2026-09-14"}},
-            id="unsupported-known-at",
-        ),
-        pytest.param(
             {"json": {"query": "焊线脱落", "known_at": "2026-09-15", "top_k": 0}},
             id="top-k-zero",
         ),

@@ -58,7 +58,7 @@ def test_search_no_hits_has_no_answer_or_model_call(search_client):
 
 
 @pytest.mark.parametrize("extra", [
-    {"query": " "}, {"known_at": "2026-09-16"}, {"top_k": True},
+    {"query": " "}, {"known_at": "2026/09/16"}, {"top_k": True},
     {"top_k": 0}, {"top_k": 1.5}, {"api_key": "not-accepted"},
 ])
 def test_invalid_search_does_not_load_database(monkeypatch, extra):

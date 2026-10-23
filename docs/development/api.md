@@ -4,11 +4,11 @@ M5-03 提供本机学习展示用的 HTTP 接口：把当前问题交给同一�
 
 接口遵守[回答核心约定](../design/behavior-contracts.md#3-grounded-answer-核心约定)，HTTP 边界如下：
 
-- 只做 HTTP 适配，不改数据、qrels、检索、提示词或既有 CLI 行为；
+- 搜索与回答只做 HTTP 适配；资料接口委托 storage 整体替换当前运行数据，不改 qrels、检索方法或提示词；
 - 固定走 PostgreSQL（连接沿用 `CASETRACE_DATABASE_URL` / 项目根 `.env`），schema 由服务端工厂配置；
 - 客户端只提交问题，不提交连接、凭据、路径、schema、模型选择或数据源；
-- 不含 CRUD、连接池、缓存、异步改造、流式响应、后台任务、认证或前端构建链；默认只绑定 `127.0.0.1`；
-- M6-02 起同一应用额外托管 `GET /` 与 `/static/*` 单页（同源调用 `/answer`），见 [Web 页面使用说明](web-demo.md)；页面读取不连接数据库、不构造模型。
+- 资料接口仅提供固定 CSV 整体替换，不含逐条 CRUD、连接池、缓存、流式响应、后台任务、认证或前端构建链；默认只绑定 `127.0.0.1`；
+- 同一应用托管 `GET /`、`GET /settings` 与 `/static/*`（同源调用 API），见 [Web 页面使用说明](web-demo.md)；页面文件读取不连接数据库、不构造模型。
 
 ## 安装与准备
 
@@ -16,7 +16,7 @@ M5-03 提供本机学习展示用的 HTTP 接口：把当前问题交给同一�
 uv sync --locked --inexact
 ```
 
-数据库连接、初始化与导入见 [PostgreSQL 环境说明](postgresql.md)；容器路线（`docker compose` 同时启动 PostgreSQL 与 API）见 [Docker 运行链路](docker.md)，两条路线的接口行为一致。回答路线要求目标 schema 已初始化并导入 dev-v3 快照：
+数据库连接、初始化与导入见 [PostgreSQL 环境说明](postgresql.md)；容器路线（`docker compose` 同时启动 PostgreSQL 与 API）见 [Docker 运行链路](docker.md)，两条路线的接口行为一致。目标 schema 首次初始化可导入 dev-v3，后续可通过资料接口替换当前快照：
 
 ```bash
 uv run --locked python -m casetrace.storage init
@@ -35,12 +35,24 @@ curl --fail-with-body http://127.0.0.1:8000/health          # {"status":"ok"}
 
 ## 请求
 
+### 数据状态与整体替换（展示升级 03）
+
+`GET /settings` 为资料设置页。`GET /dataset` 返回名称、Case/Detail/Evidence 数量、更新时间、登记时点及依据、draft 状态和数据摘要，不返回连接或凭据。`GET /dataset/template` 和 `/dataset/example` 可在无数据库时下载固定 CSV 模板及完整合成示例；`GET /dataset/reference` 返回当前实例允许的主数据和枚举。填写规则见 [CSV 上传格式](../data/upload-format.md)。
+
+`POST /dataset` 的请求体为原始 CSV 字节（`Content-Type: text/csv`），查询参数为 `dataset_name`（1–120 字符）、`known_at`（严格 ISO 日期）、`basis`（1–2000 字符）、`filename`（1–255 字符的 CSV 文件名，无目录），拒绝额外参数和空白／占位。请求流读取超过 5 MiB 即返回 413，不进入数据库。原始字节摘要在 UTF-8 解码前计算；接受 BOM。
+
+上传成功返回 200：`{"status":"imported","message":"当前数据集已整体替换。","dataset":{...}}`。CSV 或业务检查失败返回 422，`errors` 中包含 `row`（物理起始行，无法定位时 null）、`column`、`message`；元数据校验失败沿用框架 `detail`。写入或数据库前提失败返回 503 和安全说明，事务回滚；未预期错误为 500。网络断开时客户端不能由缺少回执推断事务未提交，应读取当前数据状态核对，页面不自动重传。
+
+替换只修改当前运行 schema 的业务记录和单行快照元数据，主数据保持原内容；原文件和评估文件不被写入。读回共享锁覆盖多表读取，替换和启动准备使用同一元数据表的排他锁。模型生成发生在读库连接关闭之后，正在执行的回答保留旧快照并完成。网页上传不调用模型。
+
+### 搜索与回答
+
 `POST /search` 与 `POST /answer` 的 JSON 对象只有三个字段，额外字段拒绝（422）：
 
 | 字段 | 约定 |
 |---|---|
 | `query` | 必填字符串，拒绝空白；原样传给核心，不改写、截断或反填 |
-| `known_at` | 必填 `YYYY-MM-DD`；当前仅支持记录时点 `2026-09-15`，不接受时间戳或 datetime |
+| `known_at` | 必填 `YYYY-MM-DD`；须与 `GET /dataset` 返回的当前登记日期一致，不接受时间戳或 datetime。内置示例为 `2026-09-15` |
 | `top_k` | 可省略，默认 4；严格正整数（拒绝 bool、小数、数字字符串） |
 
 ```bash
@@ -120,7 +132,7 @@ curl --fail-with-body http://127.0.0.1:8000/search \
 | 位置 | 内容 |
 |---|---|
 | `src/casetrace/api.py` | `create_app`、默认 `app`、请求／响应模型、`/health`、`/answer`，以及 M6-02 的 `GET /` 与 `/static/` 挂载 |
-| `src/casetrace/web/` | M6-02 单页与静态资源（`index.html`、`app.css`、`app.js`），见 [Web 页面使用说明](web-demo.md) |
+| `src/casetrace/web/` | 搜索与资料设置页面、静态资源及完整 CSV 示例，见 [Web 页面使用说明](web-demo.md) |
 | `tests/api/` | 无库、无模型的 HTTP 契约、离线状态映射与页面托管契约 |
 | `tests/storage/test_api_integration.py` | 真实 PostgreSQL 五 Query 回放与读取边界 |
 | `scripts/web_demo_smoke.py` | M6-02 离线回放的本地验收入口（真实测试库 + 临时 schema，不调用模型） |

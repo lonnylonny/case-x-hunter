@@ -11,12 +11,14 @@ from datetime import date, datetime
 import hashlib
 from pathlib import Path
 from typing import Protocol
+from uuid import uuid4
 
 from psycopg import Connection, sql
 from psycopg.types.json import Jsonb
 
 from casetrace.data.dataset_model import Case, CaseDetail, CaseGroup, EvidenceCheckpoint, Membership
 from casetrace.data.reference import ReferenceData
+from casetrace.data.csv_import import parse_csv
 from casetrace.demo import check_source_records, load_validated_dataset
 from casetrace.storage.content import (
     CONTENT_DIGEST_VERSION, ENTITY_PAYLOAD_KEYS, ENTITY_TABLES, IMPORT_ORDER,
@@ -375,10 +377,74 @@ def _load_snapshot(connection: Connection, schema: str, meta: dict) -> LoadedSna
 def load_snapshot(connection: Connection, *, schema: str = DEFAULT_SCHEMA) -> LoadedSnapshot:
     """从关系表重建对象与源顺序，并核对一次完整内容摘要。"""
     name = check_schema_name(schema)
-    meta = _read_metadata(connection, name)
-    if meta is None:
-        raise ValueError(f"schema {name} 没有已记录的快照；请先运行 python -m casetrace.storage import")
-    return _load_snapshot(connection, name, meta)
+    with connection.transaction():
+        # 所有公开导入/替换先锁元数据表。共享锁跨越多表读取，避免读到新旧混合内容；
+        # 读完即释放，模型生成期间不持有数据库锁或连接。
+        connection.execute(sql.SQL("LOCK TABLE {} IN SHARE MODE").format(
+            sql.Identifier(name, "snapshot_metadata"),
+        ))
+        meta = _read_metadata(connection, name)
+        if meta is None:
+            raise ValueError(f"schema {name} 没有已记录的快照；请先运行 python -m casetrace.storage import")
+        return _load_snapshot(connection, name, meta)
+
+
+@dataclass(frozen=True)
+class UploadedSnapshotIdentity:
+    snapshot_id: str
+    known_at: date
+    dataset_sha256: str
+    reference_sha256: str
+    basis: str
+
+
+def replace_csv_snapshot(
+    connection: Connection, raw: bytes, *, dataset_name: str, known_at: date,
+    basis: str, filename: str, schema: str = DEFAULT_SCHEMA,
+) -> LoadedSnapshot:
+    """校验整份 CSV 后原子替换；主数据保持当前实例内容，失败全部回滚。"""
+    name = check_schema_name(schema)
+    with connection.transaction():
+        if schema_version(connection, schema=name) != SCHEMA_VERSION:
+            raise ValueError("当前实例尚未初始化或结构版本不符")
+        connection.execute(sql.SQL("LOCK TABLE {} IN EXCLUSIVE MODE").format(
+            sql.Identifier(name, "snapshot_metadata"),
+        ))
+        current = load_snapshot(connection, schema=name)
+        records, payload = parse_csv(raw, reference=current.reference,
+                                     known_at=known_at, filename=filename)
+        payload["dataset_name"] = dataset_name
+        payload["upload_filename"] = filename
+        identity = UploadedSnapshotIdentity(
+            snapshot_id=f"upload-{uuid4().hex}", known_at=known_at,
+            dataset_sha256=hashlib.sha256(raw).hexdigest(),
+            reference_sha256=current.snapshot.reference_sha256, basis=basis,
+        )
+        reference_rows = {
+            table: _read_rows(connection, name, table, TABLE_KEYS[table])
+            for table in REFERENCE_TABLES
+        }
+        mode_order = _read_metadata(connection, name)["ordering"]["failure_mode_routes"]
+        entities = entity_rows(records)
+        content = build_content(
+            snapshot_fields=_snapshot_fields(identity, identity.dataset_sha256,
+                                             identity.reference_sha256, payload),
+            reference=reference_rows, entities=entities, payload=payload,
+            ordering=build_ordering(entities, mode_order),
+        )
+        # 逆依赖顺序删除业务关系；不用 TRUNCATE，不改原文件或主数据。
+        for table in reversed(ENTITY_TABLES):
+            connection.execute(sql.SQL("DELETE FROM {}").format(sql.Identifier(name, table)))
+        connection.execute(sql.SQL("DELETE FROM {}").format(sql.Identifier(name, "snapshot_metadata")))
+        for table in IMPORT_ORDER:
+            if table in entities and entities[table]:
+                _insert_rows(connection, name, table, entities[table])
+        _insert_snapshot(
+            connection, name, identity, Path(f"upload:{filename}"), identity.dataset_sha256,
+            Path(current.snapshot.reference_path), identity.reference_sha256,
+            payload, content["ordering"], content_digest(content),
+        )
+        return load_snapshot(connection, schema=name)
 
 
 def import_snapshot(

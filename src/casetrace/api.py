@@ -2,7 +2,7 @@
 
 本模块只做 HTTP 适配：请求字段校验、服务端连接配置、JSON 输出与状态映射。
 检索、证据上下文、生成与引用守卫仍在 `answer` 核心（`run_answer_question`）里，
-API 不复制业务流程，也不改数据、qrels 或既有 CLI 行为。
+API 不复制业务流程；03 的 CSV 整体替换交给 storage，原始资料与 qrels 不被改写。
 
 M6-02 在同一应用上增加 `GET /` 单页与 `/static/` 资源（`src/casetrace/web/`）：
 页面按模块位置定位，读取时不连接数据库、不构造模型，浏览器用相对地址同源请求 `/answer`。
@@ -28,11 +28,14 @@ from datetime import date, datetime
 import os
 from pathlib import Path
 import re
+from typing import Annotated
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, Query, Request
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
+import psycopg
+from starlette.concurrency import run_in_threadpool
 
 from casetrace.answer.cli import (
     STATUS_CITATION_FAILED,
@@ -52,6 +55,10 @@ from casetrace.answer.context import (
 from casetrace.answer.model import API_KEY_ENV, DEFAULT_MODEL, ChatModel, ModelConfigError
 from casetrace.env import load_local_env
 from casetrace.storage.schema import DEFAULT_SCHEMA
+from casetrace.data.csv_import import CsvImportError, MAX_UPLOAD_BYTES, PLACEHOLDERS, csv_bytes
+from casetrace.data.constants import CHECKPOINT_TYPES, DETECTION_STAGES, RELEVANCE_VALUES
+from casetrace.storage.connection import connect
+from casetrace.storage.snapshot import LoadedSnapshot, replace_csv_snapshot
 
 # 模型工厂：核心在确需生成时才调用它；应用创建、health 与无效请求都不构造模型。
 ModelFactory = Callable[[], ChatModel]
@@ -100,8 +107,8 @@ class AnswerResponse(BaseModel):
 class AnswerRequest(BaseModel):
     """`POST /answer` 的请求体：只有三个字段，额外字段一律拒绝（422）。
 
-    `query` 保留原始文本，不改写、截断或从历史反填；`known_at` 引用现有快照常量，
-    当前仅支持 `DEV_V3_SNAPSHOT.known_at`；`top_k` 是严格正整数，默认 4。
+    `query` 保留原始文本，不改写、截断或从历史反填；`known_at` 必须与当前数据集
+    的登记日期一致，读库后核对；`top_k` 是严格正整数，默认 4。
     """
 
     model_config = ConfigDict(
@@ -117,8 +124,7 @@ class AnswerRequest(BaseModel):
         description="当前问题原文；原样传给核心，不改写、不截断",
     )
     known_at: date = Field(
-        description="语料可用时点 YYYY-MM-DD；当前仅支持 "
-                    f"{DEV_V3_SNAPSHOT.known_at.isoformat()}",
+        description="语料可用时点 YYYY-MM-DD；须与 GET /dataset 的当前登记日期一致",
     )
     top_k: StrictInt = Field(
         default=DEFAULT_TOP_K,
@@ -145,12 +151,62 @@ class AnswerRequest(BaseModel):
             return value
         raise ValueError("known_at 必须是 YYYY-MM-DD 日期字符串")
 
-    @field_validator("known_at")
+
+class DatasetUploadMetadata(BaseModel):
+    """随原始 CSV 上传的查询参数；不接受路径、schema、凭据或审阅状态。"""
+
+    model_config = ConfigDict(extra="forbid")
+    dataset_name: str = Field(min_length=1, max_length=120)
+    known_at: date
+    basis: str = Field(min_length=1, max_length=2000)
+    filename: str = Field(min_length=1, max_length=255)
+
+    @field_validator("known_at", mode="before")
     @classmethod
-    def _reject_unsupported_known_at(cls, value: date) -> date:
-        if value != DEV_V3_SNAPSHOT.known_at:
-            raise ValueError(f"当前仅支持 known_at={DEV_V3_SNAPSHOT.known_at.isoformat()}")
+    def require_date(cls, value):
+        return AnswerRequest._require_date_value(value)
+
+    @field_validator("dataset_name", "basis", "filename")
+    @classmethod
+    def require_specific_text(cls, value: str) -> str:
+        if not value.strip() or value.strip().casefold() in PLACEHOLDERS or "\x00" in value:
+            raise ValueError("必须填写具体内容，不接受空白或占位")
         return value
+
+    @field_validator("filename")
+    @classmethod
+    def require_csv_filename(cls, value: str) -> str:
+        if "/" in value or "\\" in value or not value.lower().endswith(".csv"):
+            raise ValueError("必须是 CSV 文件名，不能包含目录")
+        return value
+
+
+def dataset_info(loaded: LoadedSnapshot) -> dict:
+    return {
+        "name": loaded.payload.get("dataset_name", "内置合成示例 dev-v3"
+                                   if loaded.snapshot.snapshot_id == DEV_V3_SNAPSHOT.snapshot_id
+                                   else loaded.snapshot.snapshot_id),
+        "snapshot_id": loaded.snapshot.snapshot_id,
+        "case_count": len(loaded.records["cases"]),
+        "detail_count": len(loaded.records["details"]),
+        "evidence_count": len(loaded.records["evidences"]),
+        "known_at": loaded.snapshot.known_at.isoformat(), "basis": loaded.snapshot.basis,
+        "updated_at": loaded.snapshot.imported_at.isoformat(),
+        "review_status": loaded.snapshot.review_status,
+        "dataset_sha256": loaded.snapshot.dataset_sha256,
+        "content_digest": loaded.snapshot.content_digest,
+        "is_upload": loaded.snapshot.split == "user_upload",
+    }
+
+
+def unsupported_date(request: AnswerRequest, loaded: LoadedSnapshot) -> JSONResponse | None:
+    if request.known_at != loaded.snapshot.known_at:
+        return JSONResponse(status_code=422, content={"detail": [{
+            "loc": ["body", "known_at"],
+            "msg": f"当前数据集仅支持 known_at={loaded.snapshot.known_at.isoformat()}；请刷新数据状态。",
+            "type": "value_error",
+        }]})
+    return None
 
 
 # HTTP 边界状态：`service_unavailable`/`internal_error` 只用于网络边界，
@@ -294,6 +350,81 @@ def create_app(
     def health() -> HealthResponse:
         return HealthResponse()
 
+    @app.get("/dataset/template", summary="下载唯一 CSV 模板")
+    def dataset_template() -> Response:
+        return Response(csv_bytes(), media_type="text/csv; charset=utf-8", headers={
+            "Content-Disposition": 'attachment; filename="casetrace-template.csv"',
+        })
+
+    @app.get("/dataset/example", summary="下载完整合成示例（1 Case、2 Detail、3 Evidence）")
+    def dataset_example() -> FileResponse:
+        return FileResponse(WEB_DIR / "import-example.csv", media_type="text/csv; charset=utf-8",
+                            filename="casetrace-example.csv")
+
+    @app.get("/settings", include_in_schema=False)
+    def settings() -> FileResponse:
+        return FileResponse(WEB_DIR / "settings.html", media_type="text/html")
+
+    @app.get("/dataset", summary="当前数据集状态")
+    def current_dataset() -> JSONResponse:
+        try:
+            return JSONResponse(dataset_info(load_database_snapshot(app.state.db_schema)))
+        except (ValueError, OSError):
+            return _json_response(503, SERVICE_UNAVAILABLE, DB_PREREQUISITE_MESSAGE, None)
+        except Exception:
+            return _json_response(500, INTERNAL_ERROR, UNEXPECTED_MESSAGE, None)
+
+    @app.get("/dataset/reference", summary="当前合法主数据与枚举")
+    def dataset_reference() -> JSONResponse:
+        try:
+            loaded = load_database_snapshot(app.state.db_schema)
+            reference = loaded.reference
+            return JSONResponse({
+                "products": [{**item, "customer_id": reference.product_customers[key]}
+                             for key, item in reference.products.items()],
+                "failure_modes": [{"failure_mode_id": key, "failure_mode": item["failure_mode"],
+                                   "applicable_package": item["applicable_package"]}
+                                  for key, item in reference.failure_modes.items()],
+                "processes": reference.processes,
+                "route_processes": {key: sorted(value) for key, value in reference.route_processes.items()},
+                "detection_stages": DETECTION_STAGES, "checkpoint_types": CHECKPOINT_TYPES,
+                "relevance_values": RELEVANCE_VALUES,
+            })
+        except (ValueError, OSError):
+            return _json_response(503, SERVICE_UNAVAILABLE, DB_PREREQUISITE_MESSAGE, None)
+        except Exception:
+            return _json_response(500, INTERNAL_ERROR, UNEXPECTED_MESSAGE, None)
+
+    def perform_upload(raw: bytes, metadata: DatasetUploadMetadata) -> JSONResponse:
+        try:
+            with connect() as connection:
+                loaded = replace_csv_snapshot(connection, raw, schema=app.state.db_schema,
+                                              **metadata.model_dump())
+            return JSONResponse({"status": "imported", "message": "当前数据集已整体替换。",
+                                 "dataset": dataset_info(loaded)})
+        except CsvImportError as error:
+            return JSONResponse(status_code=422, content={
+                "status": "invalid_dataset", "message": "未导入，原数据保持可查询。",
+                "errors": error.errors,
+            })
+        except (ValueError, OSError, RuntimeError, psycopg.Error):
+            return _json_response(503, SERVICE_UNAVAILABLE,
+                                  "替换未完成，原数据未被本次上传修改；请检查数据库状态。", None)
+        except Exception:
+            return _json_response(500, INTERNAL_ERROR, UNEXPECTED_MESSAGE, None)
+
+    @app.post("/dataset", summary="上传唯一 CSV 格式并原子替换当前数据集")
+    async def upload_dataset(request: Request,
+                             metadata: Annotated[DatasetUploadMetadata, Query()]) -> JSONResponse:
+        raw = bytearray()
+        async for chunk in request.stream():
+            if len(raw) + len(chunk) > MAX_UPLOAD_BYTES:
+                return JSONResponse(status_code=413, content={
+                    "status": "invalid_dataset", "message": "文件超过 5 MiB，未导入。",
+                })
+            raw.extend(chunk)
+        return await run_in_threadpool(perform_upload, bytes(raw), metadata)
+
     @app.get("/model-status", response_model=ModelStatusResponse, summary="模型配置状态（不调用模型）")
     def model_status() -> ModelStatusResponse:
         if app.state.model_factory_supplied:
@@ -313,6 +444,9 @@ def create_app(
                 loaded = load_database_snapshot(schema)
             except (ValueError, OSError):
                 return _json_response(503, SERVICE_UNAVAILABLE, DB_PREREQUISITE_MESSAGE, None)
+            date_error = unsupported_date(request, loaded)
+            if date_error is not None:
+                return date_error
             run = prepare_answer_run(
                 request.query, request.known_at, top_k=request.top_k,
                 loaded_snapshot=loaded, db_schema=schema,
@@ -353,6 +487,9 @@ def create_app(
             except (ValueError, OSError):
                 # 只在读库入口捕获配置、连接、未导入或内容检查失败。
                 return _json_response(503, SERVICE_UNAVAILABLE, DB_PREREQUISITE_MESSAGE, None)
+            date_error = unsupported_date(request, loaded)
+            if date_error is not None:
+                return date_error
             outcome = run_answer_question(
                 request.query, request.known_at,
                 model_factory=app.state.model_factory, query_id=None, top_k=request.top_k,

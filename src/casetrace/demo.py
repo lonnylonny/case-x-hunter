@@ -6,7 +6,7 @@ from pathlib import Path
 
 from casetrace.data.dataset_model import Case, CaseDetail, CaseGroup, EvidenceCheckpoint, Membership
 from casetrace.data.reference import ReferenceData, load_reference
-from casetrace.data.validators import validate_generation, validate_relations
+from casetrace.data.validators import check_confirmed_evidence, validate_generation, validate_relations
 from casetrace.retrieval.bm25 import BM25Retriever
 
 
@@ -87,6 +87,12 @@ def load_validated_dataset(
 
 def check_source_records(records: dict, payload: dict, reference: ReferenceData) -> None:
     """来源记录仅用于核对已选择的候选，不能进入检索文本成为额外的匹配线索。"""
+    errors = check_confirmed_evidence(records["evidences"], {
+        case.case_id: payload["sources"][case.case_id].get("closure_status")
+        for case in records["cases"]
+    })
+    if errors:
+        raise ValueError("\n".join(errors))
     for case in records["cases"]:
         source = payload["sources"][case.case_id]
         case_modes = {mode_id for detail in records["details"] if detail.case_id == case.case_id
@@ -94,11 +100,6 @@ def check_source_records(records: dict, payload: dict, reference: ReferenceData)
         if source["failure_mode_id"] not in case_modes:
             raise ValueError(f"{case.case_id} 的来源未对应本 Case 选择的 Failure Mode")
         mode = reference.failure_modes[source["failure_mode_id"]]
-        if source.get("closure_status") == "confirmed" and not any(
-            item.case_id == case.case_id and item.relevance == "related"
-            for item in records["evidences"]
-        ):
-            raise ValueError(f"CR-35 | {case.case_id} | confirmed 草稿至少需要一个 related Evidence")
         for field, column in (("root_cause", "possible_root_causes"),
                               ("corrective_action", "corrective_actions")):
             selected = source[field]

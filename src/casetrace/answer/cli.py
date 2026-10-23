@@ -221,7 +221,7 @@ def run_answer_question(
     query: str, known_at: date, *, dataset_path: Path | None = None,
     reference_path: Path | None = None,
     model_factory: Callable[[], ChatModel], query_id: str | None = None,
-    snapshot: CorpusSnapshot = DEV_V3_SNAPSHOT, top_k: int = DEFAULT_TOP_K,
+    snapshot: CorpusSnapshot | None = None, top_k: int = DEFAULT_TOP_K,
     loaded_snapshot: "LoadedSnapshot | None" = None, db_schema: str = DEFAULT_SCHEMA,
 ) -> AnswerOutcome:
     """跑一次完整回答：R3 检索 → 证据上下文 → 生成 → 引用守卫。

@@ -10,6 +10,7 @@
 <body>
   <header class="page-header">
     <h1>Case-X-Hunter 历史案例参考</h1>
+    <nav class="actions" aria-label="页面导航"><a href="/" aria-current="page">搜索历史案例</a><a href="/settings">资料设置</a></nav>
     <p class="notice" role="note">
       搜索历史案例与检查证据，配置模型后可生成有来源的调查参考。
       <strong>历史原因与措施不等于当前异常的最终根因或当前建议。</strong>
@@ -19,6 +20,7 @@
   <main>
     <section class="panel" aria-labelledby="input-heading">
       <h2 id="input-heading">当前已知异常</h2>
+      <p id="current-dataset" class="hint" role="status">正在读取当前数据集…</p>
       <form id="answer-form" novalidate>
         <div class="field query-field">
           <label for="query">当前已知信息</label>
@@ -51,8 +53,8 @@
           <div class="field-row">
             <div class="field">
               <label for="known-at">资料可用时点</label>
-              <input id="known-at" name="known_at" type="date" value="2026-09-15" required>
-              <p class="hint">当前示例固定为 2026-09-15，不支持任意历史日期过滤。</p>
+              <input id="known-at" name="known_at" type="date" value="2026-09-15" required readonly>
+              <p class="hint">使用当前数据集登记的完整可用日期，不支持任意历史日期过滤。</p>
             </div>
             <div class="field">
               <label for="top-k">候选条数 top_k</label>

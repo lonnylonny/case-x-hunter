@@ -48,6 +48,9 @@ const CONTEXT_LABELS = {
   sheet: '来源表', failure_mode_id: 'Failure Mode', closure_status: '结案状态',
   product_name: '产品名称', product_family: '产品族', package_route: '封装路线',
   customer_id: '客户', process_id: '工序', process_name: '工序名称',
+  record_type: '记录类型', record_id: '记录 ID',
+  source_document_id: '来源报告编号', source_document_name: '来源报告名称',
+  source_location: '来源具体位置', filename: '上传文件名', csv_line: 'CSV 行号',
 };
 
 const form = document.getElementById('answer-form');
@@ -67,6 +70,7 @@ const downloadButton = document.getElementById('download-button');
 // 请求进行中标记：用于兜底阻止重复提交（控件本身也会被禁用）。
 let inFlight = false;
 let modelConfigured = false;
+let datasetReady = false;
 // 当前下载对象 URL；替换或清除时必须 revoke，避免泄漏。
 let downloadUrl = null;
 
@@ -511,7 +515,11 @@ function renderContextCase(record, caseId) {
   details.append(fieldBlock('Case（历史原文）', renderObject(entry.case)));
   details.append(fieldBlock('Detail（生产与发现事实）', renderObjectList(entry.details)));
   details.append(fieldBlock('Evidence（检查结果）', renderObjectList(entry.evidences)));
-  details.append(fieldBlock('来源记录（允许进入上下文的字段）', renderObject(entry.source)));
+  if (Array.isArray(entry.source?.records)) {
+    details.append(fieldBlock('结案状态（来源声明）', entry.source.closure_status));
+  }
+  details.append(fieldBlock('来源记录（允许进入上下文的字段）',
+    Array.isArray(entry.source?.records) ? renderObjectList(entry.source.records) : renderObject(entry.source)));
   details.append(fieldBlock('产品背景', renderObjectList(entry.background)));
   details.append(fieldBlock('已确认异常工序', renderObjectList(entry.processes)));
   return details;
@@ -712,7 +720,6 @@ function renderUnreadable(heading, note) {
 function fillExample() {
   clearResult();
   queryInput.value = EXAMPLE_QUERIES[exampleSelect.value];
-  knownAtInput.value = SNAPSHOT_DATE;
   exampleDisclosure.open = false;
   setStatus('示例已填入，可修改后搜索或生成调查参考；尚未提交。', 'info');
   queryInput.focus();
@@ -734,6 +741,22 @@ async function loadModelStatus() {
   generateButton.disabled = inFlight || !modelConfigured;
 }
 
+async function loadDatasetStatus() {
+  const line = document.getElementById('current-dataset');
+  try {
+    const response = await fetch('/dataset');
+    const data = await response.json();
+    if (!response.ok || typeof data.known_at !== 'string') throw new Error('dataset unavailable');
+    knownAtInput.value = data.known_at;
+    line.textContent = `当前数据集：${data.name} · ${data.case_count} 个案例 · 更新于 ${data.updated_at}`;
+    exampleDisclosure.hidden = data.is_upload;
+    datasetReady = true;
+  } catch (error) {
+    datasetReady = false;
+    line.textContent = '无法读取当前数据集，请检查服务与数据库后刷新页面。';
+  }
+}
+
 /** 把表单读成 API 契约的三字段；不合法时返回 { error, focus }。 */
 function readForm() {
   const query = queryInput.value;
@@ -742,7 +765,7 @@ function readForm() {
   }
   const knownAt = knownAtInput.value;
   if (!knownAt) {
-    return { error: '请选择快照日期（当前仅支持 2026-09-15）。', focus: knownAtInput };
+    return { error: '请刷新页面以读取当前数据集的登记日期。', focus: knownAtInput };
   }
   const topK = Number(topKInput.value.trim());
   if (!Number.isInteger(topK) || topK <= 0) {
@@ -754,6 +777,10 @@ function readForm() {
 async function submitRequest(event) {
   event.preventDefault();
   if (inFlight) {
+    return;
+  }
+  if (!datasetReady) {
+    setStatus('当前数据集状态尚未就绪，请稍后或刷新页面重试。', 'error');
     return;
   }
   const mode = event.submitter === generateButton ? 'answer' : 'search';
@@ -821,3 +848,4 @@ exampleButton.addEventListener('click', fillExample);
 knownAtInput.value = SNAPSHOT_DATE;
 topKInput.value = String(DEFAULT_TOP_K);
 loadModelStatus();
+loadDatasetStatus();

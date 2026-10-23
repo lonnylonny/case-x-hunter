@@ -481,6 +481,21 @@ def check_case_processes(
     return errors
 
 
+def check_confirmed_evidence(
+    evidences: list[EvidenceCheckpoint], closure_statuses: dict[str, str | None],
+) -> list[str]:
+    """CR-35 的机械门槛：结案状态由显式来源提供，不从根因文本猜测。
+
+    仅检查 confirmed 至少一个 related；证据是否支持结论仍需语义审阅。
+    """
+    supported = {item.case_id for item in evidences if item.relevance == "related"}
+    return [
+        f"CR-35 | Case[{case_id}] | evidences | confirmed 草稿至少需要一个 related Evidence"
+        for case_id, status in closure_statuses.items()
+        if status == "confirmed" and case_id not in supported
+    ]
+
+
 def validate_relations(
     *, cases: list[Case], details: list[CaseDetail], evidences: list[EvidenceCheckpoint],
     groups: list[CaseGroup], memberships: list[Membership],

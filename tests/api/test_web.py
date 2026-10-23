@@ -62,6 +62,16 @@ def test_index_survives_working_directory_change(client, monkeypatch, tmp_path):
     assert response.text == client.get("/").text
 
 
+def test_settings_and_upload_assets_are_available_without_dependencies(client):
+    response = client.get('/settings')
+    assert response.status_code == 200
+    assert 'id="upload-form"' in response.text
+    assert '/dataset/template' in response.text
+    assert '/dataset/example' in response.text
+    assert 'source_document_id' in response.text
+    assert client.get('/static/settings.js').status_code == 200
+
+
 def test_index_has_input_contract_and_defaults(client):
     page = client.get("/").text
 
