@@ -5,6 +5,7 @@
 - ``initialize_schema(connection, schema=...)`` —— 建立/补齐专用 schema；
 - ``import_snapshot(connection, dataset_path, reference_path)`` —— 原子导入单快照；
 - ``load_snapshot(connection)`` —— 完整读回并核对内容身份。
+- ``prepare_snapshot(connection, dataset_path, reference_path)`` —— 启动前导入或保留快照。
 
 本包不接入回答命令、不实现 FastAPI，也不改动检索与生成代码；
 表、字段与约束的权威来源是 docs/data/CaseTrace_Data_Structure_V2_No_Scenario.md §5。
@@ -26,7 +27,7 @@ from casetrace.storage.schema import (
 )
 from casetrace.storage.snapshot import (
     ImportResult, LoadedSnapshot, SnapshotIdentity, StoredSnapshot, VerificationReport,
-    import_snapshot, load_snapshot, verify_snapshot,
+    import_snapshot, load_snapshot, prepare_snapshot, verify_snapshot,
 )
 
 __all__ = [
@@ -46,6 +47,7 @@ __all__ = [
     "initialize_schema",
     "list_tables",
     "load_snapshot",
+    "prepare_snapshot",
     "resolve_database_url",
     "verify_snapshot",
 ]

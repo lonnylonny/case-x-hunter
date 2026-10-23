@@ -19,33 +19,31 @@ CLI ───────────────┴→ 文件 / PostgreSQL 快�
 
 ## 快速启动 Web Demo
 
-前提：Docker Desktop（或 Docker Engine + Compose）已启动。在仓库根目录执行：
+前提：Docker Desktop（或 Docker Engine + Compose 插件）已启动，当前用户可访问 Docker。首次需要联网拉取镜像与依赖；宿主无需安装 Python/uv。在仓库根目录执行：
+
+Linux / macOS：
 
 ```bash
-test -f .env || cp .env.example .env
+bash scripts/start-demo.sh
 ```
 
-编辑 `.env`：设置两个数据库密码，并同步各连接 URL 中的应用密码。需要生成回答时填写 `DEEPSEEK_API_KEY`；留空仍可启动、导入和检查证据上下文。模板见 [.env.example](.env.example)。
+Windows PowerShell（Docker Desktop 使用 Linux containers）：
 
-```bash
-docker compose build api
-docker compose up -d --wait --wait-timeout 60 postgres
-docker compose run --rm api python -m casetrace.storage init
-docker compose run --rm api python -m casetrace.storage import
-docker compose run --rm api python -m casetrace.storage verify
-docker compose up -d --wait --wait-timeout 60 api
-curl --fail-with-body http://127.0.0.1:8000/health
+```powershell
+./scripts/start-demo.ps1
 ```
 
-打开 <http://127.0.0.1:8000/>，点击“填入示例 Query”后提交。默认快照日期为 `2026-09-15`、`top_k=4`；提交会调用真实模型。交互式 API 文档在 `/docs`。`/health` 仅检查进程存活。
+入口会在 `.env` 不存在时生成两份随机数据库密码，构建镜像、初始化数据库、导入合成示例，全部成功后输出页面地址（默认 <http://127.0.0.1:8000/>）。以后仍运行同一命令；当前数据会保留。已有 `.env` 保留原配置，模板占位密码需要先填写；旧数据库卷必须继续使用原密码。容器 URL 由应用密码自动构造，无需手动同步。
+
+需要生成回答时在 `.env` 填写 `DEEPSEEK_API_KEY`，再运行入口。密钥留空可完成启动和证据检查；目前网页提交仍会调用模型，无密钥网页检索由升级任务 02 提供。页面默认快照日期为 `2026-09-15`、`top_k=4`；交互式 API 文档在 `/docs`。
 
 无需模型凭据的链路检查：
 
 ```bash
-docker compose run --rm api casetrace answer --data-source postgres --query-id Q005 --check-only
+docker compose run --rm --no-deps api casetrace answer --data-source postgres --query-id Q005 --check-only
 ```
 
-日常停止用 `docker compose down`，数据库卷保留。端口修改、重复导入和故障排查见 [Docker 说明](docs/development/docker.md)；接口契约见 [API 说明](docs/development/api.md)。
+日常停止用 `docker compose stop` 或 `docker compose down`，保留数据库卷。入口参数、自定义端口、已有配置迁移、故障排查及实际平台验证范围见 [Docker 说明](docs/development/docker.md)；接口契约见 [API 说明](docs/development/api.md)。
 
 ## 本地开发与复现
 
@@ -75,6 +73,6 @@ uv run --locked python scripts/m3_07_final_recheck.py /tmp/casetrace-r3-recheck.
 
 R3 在旧口径 Development 上 Recall@4=0.96；Hybrid / Rerank 未体现收益，因此保留简单方案。Locked Test 单次 Recall@4=0.8833，存在两个漏检；两套数据的规模、口径与用途不同，不能直接计算提升。原始产物和失败记录均保留。
 
-数据规模小、全部为合成案例，源 Case 仍为 draft，不证明现场泛化。回答仅支持已登记的 dev-v3 快照；引用可定位不代表语义完全正确，软件测试不代替 AI 质量评估。Locked Test 的一条标签存在用户裁决与通用规则的差异，详见[数据说明](data/evaluation/locked-test-v1/README.md)。本项目按本机学习展示交付，Docker 仅实测 arm64，未实现认证或生产部署。
+数据规模小、全部为合成案例，源 Case 仍为 draft，不证明现场泛化。回答仅支持已登记的 dev-v3 快照；引用可定位不代表语义完全正确，软件测试不代替 AI 质量评估。Locked Test 的一条标签存在用户裁决与通用规则的差异，详见[数据说明](data/evaluation/locked-test-v1/README.md)。本项目按本机学习展示交付，Docker 平台实测范围见 [Docker 说明](docs/development/docker.md)，未实现认证或生产部署。
 
 代码与测试位于 `src/casetrace/`、`tests/`；数据定义见 [docs/data](docs/data/)，业务与评估边界见 [业务与评估约定](docs/design/behavior-contracts.md)。

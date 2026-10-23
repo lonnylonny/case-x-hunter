@@ -19,7 +19,7 @@ M6-01 起同一个 `compose.yaml` 还提供 `api` 服务：容器路线的完整
 | 数据卷 | `casetrace-dev_postgres_data` | 容器重建后保留数据库内容 |
 | Python 驱动 | `psycopg[binary]`，精确版本见 `uv.lock` | 包含 libpq，无需另装本机 PostgreSQL 客户端库 |
 
-两个密码、端口和开发/测试 URL 保存在未提交的项目根 `.env`。配置项模板见 [`.env.example`](../../.env.example)。保留已有 DeepSeek 配置；不要把真实密码或 URL 写入报告、日志或 Git。应用命令可调用 `casetrace.env.load_local_env()` 加载，环境变量优先；Compose 自动读取根目录 `.env`。
+两个密码、端口和开发/测试 URL 保存在未提交的项目根 `.env`。推荐先用 [Docker 启动入口](docker.md) 自动生成数据库配置；仅使用宿主 Python 时，按 `.env.example` 的注释额外配置 `CASETRACE_DATABASE_URL` 和 `CASETRACE_TEST_DATABASE_URL`（使用应用密码的 URL 编码和映射端口）。配置项模板见 [`.env.example`](../../.env.example)。保留已有 DeepSeek 配置；不要把真实密码或 URL 写入报告、日志或 Git。应用命令可调用 `casetrace.env.load_local_env()` 加载，环境变量优先；Compose 自动读取根目录 `.env`。
 
 官方镜像的初始化脚本只在数据卷为空时运行。`docker/postgres/init/01-databases.sql` 创建账号和两个空库，不创建 CaseTrace 业务表。本机首次执行 Shell 初始化文件遇到解释器 Permission denied，已改成由 psql 直接读取的 SQL 文件；健康检查使用应用账号和密码实际连接测试库执行 `SELECT 1`，避免只检查进程启动。后续修改 `.env` 的密码不会自动修改已有数据库账号密码；需要单独执行账号密码修改并同步连接配置。
 

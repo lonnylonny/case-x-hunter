@@ -2,6 +2,7 @@
 # 真实凭据（.env）绝不进入构建上下文，也从不作为构建 ARG/ENV 传入。
 .env
 .env.*
+*.env
 .git
 .gitignore
 .venv/

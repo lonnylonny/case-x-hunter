@@ -23,7 +23,9 @@ from casetrace.storage.content import (
     INSERT_COLUMNS, REFERENCE_TABLES, build_content, content_digest, normalize,
 )
 from casetrace.storage.reference_source import TABLE_KEYS, build_reference_data, build_reference_rows
-from casetrace.storage.schema import DEFAULT_SCHEMA, SCHEMA_VERSION, check_schema_name, schema_version
+from casetrace.storage.schema import (
+    DEFAULT_SCHEMA, SCHEMA_VERSION, check_schema_name, initialize_schema, schema_version,
+)
 
 SNAPSHOT_METADATA_COLUMNS = (
     "snapshot_id", "known_at", "dataset_path", "dataset_sha256", "reference_path",
@@ -53,7 +55,7 @@ class SnapshotIdentity(Protocol):
 
 @dataclass(frozen=True)
 class ImportResult:
-    """一次导入的结果；`status` 只取 `imported` 或 `no_op`。"""
+    """一次导入或准备的结果；状态为 imported、no_op 或 preserved。"""
 
     status: str
     snapshot_id: str
@@ -417,6 +419,31 @@ def import_snapshot(
                          reference_path, reference_sha256, content["payload"], content["ordering"], digest)
     return ImportResult("imported", snapshot.snapshot_id, name, digest,
                         CONTENT_DIGEST_VERSION, _content_counts(content))
+
+
+def prepare_snapshot(
+    connection: Connection, dataset_path: Path, reference_path: Path, *,
+    snapshot: SnapshotIdentity, schema: str = DEFAULT_SCHEMA,
+) -> ImportResult:
+    """启动数据准备：仅为空库导入示例，已有快照按库内摘要核对并保留。"""
+    name = check_schema_name(schema)
+    with connection.transaction():
+        initialize_schema(connection, schema=name)
+        connection.execute(sql.SQL("LOCK TABLE {} IN EXCLUSIVE MODE").format(
+            sql.Identifier(name, "snapshot_metadata"),
+        ))
+        meta = _read_metadata(connection, name)
+        if meta is None:
+            result = import_snapshot(
+                connection, dataset_path, reference_path, snapshot=snapshot, schema=name,
+            )
+            load_snapshot(connection, schema=name)
+            return result
+        loaded = _load_snapshot(connection, name, meta)
+        return ImportResult(
+            "preserved", loaded.snapshot.snapshot_id, name,
+            loaded.snapshot.content_digest, loaded.snapshot.digest_version, loaded.counts,
+        )
 
 
 def verify_snapshot(
