@@ -62,14 +62,24 @@ def test_index_survives_working_directory_change(client, monkeypatch, tmp_path):
     assert response.text == client.get("/").text
 
 
+def test_settings_and_upload_assets_are_available_without_dependencies(client):
+    response = client.get('/settings')
+    assert response.status_code == 200
+    assert 'id="upload-form"' in response.text
+    assert '/dataset/template' in response.text
+    assert '/dataset/example' in response.text
+    assert 'source_document_id' in response.text
+    assert client.get('/static/settings.js').status_code == 200
+
+
 def test_index_has_input_contract_and_defaults(client):
     page = client.get("/").text
 
-    for element in ('id="query"', 'id="known-at"', 'id="top-k"', 'id="submit-button"'):
+    for element in ('id="query"', 'id="known-at"', 'id="runtime-settings"', 'id="submit-button"'):
         assert element in page
     # 默认快照日期与默认 top_k 写在页面上，且引用相对静态资源。
     assert 'value="2026-09-15"' in page
-    assert 'value="4"' in page
+    assert 'value="4"' not in page  # 实际设置从服务端读取
     for asset in ASSETS:
         assert asset in page
     # 页面壳不包含任何结果占位，避免把空状态误读成成功。
@@ -103,8 +113,7 @@ def test_page_does_not_expose_credentials_or_infrastructure(client):
     script = client.get("/static/app.js").text
     for field in ("query", "known_at", "top_k"):
         assert field in script
-    assert 'fetch("/answer"' not in script  # 使用同源相对地址
-    assert "fetch('/answer'" in script
+    assert "'/search' : '/answer'" in script  # 两个动作均使用同源相对地址
 
 
 def test_existing_api_surface_is_unchanged(client):

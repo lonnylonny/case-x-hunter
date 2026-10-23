@@ -98,11 +98,11 @@ RUN_LIMITS = (
 )
 
 
-def build_model(model_name: str) -> ChatModel:
+def build_model(model_name: str, *, max_tokens: int = 4096) -> ChatModel:
     """构造真实模型；真实路径固定 DeepSeek 非思考模式，测试可替换该工厂。"""
 
     # v2 复制历史改善措施与来源，给完整 JSON 留出空间；不增加重试。
-    return DeepSeekChatModel(model=model_name, max_tokens=4096)
+    return DeepSeekChatModel(model=model_name, max_tokens=max_tokens)
 
 
 def load_database_snapshot(schema: str) -> LoadedSnapshot:
@@ -221,7 +221,7 @@ def run_answer_question(
     query: str, known_at: date, *, dataset_path: Path | None = None,
     reference_path: Path | None = None,
     model_factory: Callable[[], ChatModel], query_id: str | None = None,
-    snapshot: CorpusSnapshot = DEV_V3_SNAPSHOT, top_k: int = DEFAULT_TOP_K,
+    snapshot: CorpusSnapshot | None = None, top_k: int = DEFAULT_TOP_K,
     loaded_snapshot: "LoadedSnapshot | None" = None, db_schema: str = DEFAULT_SCHEMA,
 ) -> AnswerOutcome:
     """跑一次完整回答：R3 检索 → 证据上下文 → 生成 → 引用守卫。

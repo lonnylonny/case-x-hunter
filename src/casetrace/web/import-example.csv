@@ -1,0 +1,7 @@
+﻿record_type,case_id,abnormal_description,root_cause,corrective_action,investigation_others,abnormal_processes,detail_id,product_id,customer_lot,production_lot,production_time,detection_stage,detection_time,abnormal_types,affected_qty,disposition,checkpoint_id,checkpoint_type,custom_name,result,relevance,source_document_id,source_document_name,source_location,closure_status
+case,UPLOAD_C001,合成演示：两批产品 OQC 拉力检查发现焊线从焊盘界面脱落。,合成结案：焊盘表面污染导致界面结合不足。,两批隔离并报废；增加焊盘清洁与表面检查。,本案例全部为人工合成资料。,P004,,,,,,,,,,,,,,,,SYN-REPORT-001,合成焊线脱落调查报告,第1页：异常总结与结案,confirmed
+detail,UPLOAD_C001,,,,,,UPLOAD_D001,PROD_001,SYN_CL_001,SYN_PL_001,2026-06-01,OQC,2026-06-05,00010,100,本批纳入处置范围的100颗隔离并报废。,,,,,,SYN-REPORT-001,合成焊线脱落调查报告,第2页：第一批处置记录,
+detail,UPLOAD_C001,,,,,,UPLOAD_D002,PROD_001,SYN_CL_002,SYN_PL_002,2026-06-02,OQC,2026-06-06,00010,200,本批纳入处置范围的200颗隔离并报废。,,,,,,SYN-REPORT-001,合成焊线脱落调查报告,第3页：第二批处置记录,
+evidence,UPLOAD_C001,,,,,,,,,,,,,,,,UPLOAD_E001,QC,,合成检查：两批拉力试验均观察到焊盘界面剥离。,related,SYN-REPORT-001,合成焊线脱落调查报告,第4页：拉力试验记录,
+evidence,UPLOAD_C001,,,,,,,,,,,,,,,,UPLOAD_E002,Production,,合成调查：两批焊盘表面检查均发现污染；清洁后试验未再出现界面剥离。,related,SYN-REPORT-001,合成焊线脱落调查报告,第5页：生产调查记录,
+evidence,UPLOAD_C001,,,,,,,,,,,,,,,,UPLOAD_E003,Material,,合成调查：来料批次核对未发现材料混批。,not_related,SYN-REPORT-001,合成焊线脱落调查报告,第6页：来料核对记录,

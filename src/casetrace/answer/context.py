@@ -36,10 +36,11 @@ RETRIEVAL_METHOD = "bm25_drop_negation_labels"
 # M4 默认阅读前 4 条；前 4 条是候选，不是四条已确认相关案例。
 DEFAULT_TOP_K = 4
 
-# 来源记录里允许进入模型上下文的字段：哪一页、哪一行、抄的原因与措施原文、结案状态。
+# 来源记录里允许进入模型上下文的字段：合成候选出处、原因措施原文、结案状态；
+# 上传的 records 仅由 CSV 适配器组装记录 ID、报告出处、文件名与行号。
 # 其余字段（generation_note、rationale、review_status）属生成／审阅元数据，不进入证据上下文；
 # 依据见 docs/design/behavior-contracts.md §3；下方常量列出允许进入上下文的字段。
-SOURCE_FIELDS = ("sheet", "failure_mode_id", "root_cause", "corrective_action", "closure_status")
+SOURCE_FIELDS = ("sheet", "failure_mode_id", "root_cause", "corrective_action", "closure_status", "records")
 
 
 @dataclass(frozen=True)
@@ -207,7 +208,7 @@ def _check_loaded_snapshot(
 def prepare_answer_run(
     query: str, known_at: date, *, dataset_path: Path | None = None,
     reference_path: Path | None = None,
-    snapshot: CorpusSnapshot = DEV_V3_SNAPSHOT, top_k: int = DEFAULT_TOP_K,
+    snapshot: CorpusSnapshot | None = None, top_k: int = DEFAULT_TOP_K,
     loaded_snapshot: LoadedSnapshot | None = None, db_schema: str = DEFAULT_SCHEMA,
 ) -> AnswerRun:
     """应用准备入口：核对输入与快照前提 → 建一次 R3 索引 → 检索 → 运行元数据。
@@ -225,6 +226,13 @@ def prepare_answer_run(
     """
 
     _check_query_and_top_k(query, known_at, top_k)
+    if snapshot is None:
+        if loaded_snapshot is not None and loaded_snapshot.snapshot.split == "user_upload":
+            snapshot = CorpusSnapshot(**{
+                key: getattr(loaded_snapshot.snapshot, key) for key in SNAPSHOT_IDENTITY_FIELDS
+            })
+        else:
+            snapshot = DEV_V3_SNAPSHOT
     if loaded_snapshot is None:
         if dataset_path is None or reference_path is None:
             raise ValueError(

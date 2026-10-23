@@ -11,6 +11,7 @@ Data Foundation v1 已完成并冻结，现有异常站点检查已接入。冻�
 | `validate_records` | 五类实体的类型、必填、枚举与对象内部关系 |
 | `validate_relations` | 字段守门、Dataset 唯一性、引用/归属、Case 子记录与 Group 最少数量、Lot 一致性、事件去重、产品/客户/异常路线、Case 异常工序路线并集与全组公共工序 |
 | `validate_generation` | 字段守门及 GR-01 Detail 上限、GR-02 异常数量上限、GR-04 复用批号、GR-06 数量上限 |
+| `check_confirmed_evidence` | 复用来源元数据中的显式 confirmed/NDF 判断，对 confirmed 检查至少一个 related Evidence；合成与上传共用，不从自由文本猜状态，也不证明语义支持 |
 
 先通过 `validate_relations` 再调用 `validate_generation`；后者不重复关系与主数据检查，不能替代 CR 入口。错误返回 `list[str]`，标识规则、对象、字段与原因；不自动修复输入，前置错误导致跳过时明确报告。空列表只说明该入口负责的检查未发现问题。
 

@@ -19,6 +19,14 @@ from casetrace.storage import LoadedSnapshot, StoredSnapshot
 SNAPSHOT_KNOWN_AT = date(2026, 9, 15)
 
 
+@pytest.fixture(autouse=True)
+def offline_runtime_settings(monkeypatch):
+    """离线 HTTP 用例用默认设置；真实持久化在 storage/test_settings.py 验证。"""
+    from casetrace import api
+    from casetrace.settings import DEFAULT_SETTINGS
+    monkeypatch.setattr(api, "read_runtime_settings", lambda schema: DEFAULT_SETTINGS)
+
+
 @pytest.fixture
 def api_dataset(tmp_path):
     """两条最小 Case（同产品、同 Failure Mode），带 split／review_status 供元数据组装。"""

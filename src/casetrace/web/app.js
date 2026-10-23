@@ -2,8 +2,8 @@
 
 /* M6-02 SD2：回答展示与交互。
  *
- * 在 SD1（托管与输入）之上补齐：HTTP 状态与业务 status 共同判定、成功／空命中／字段校验失败／
- * 服务端失败的展示、来源展开、运行记录下载与文本安全渲染。
+ * 搜索无需模型；生成由用户显式触发。HTTP 状态与业务 status 共同判定，
+ * 区分候选、支持不足及失败，保留来源展开、记录下载与文本安全渲染。
  *
  * 约定：
  * - 所有 Query、模型输出、来源与错误文本都用 textContent 写入，绝不当 HTML 执行；
@@ -12,17 +12,19 @@
  */
 
 const SNAPSHOT_DATE = '2026-09-15';
-const DEFAULT_TOP_K = 4;
-// 示例只填入既有的 Development Query（Q002），点提交才会真正发起请求。
-const EXAMPLE_QUERY =
-  '声学扫描发现塑封空洞 molding void，涉及客户 CUS_001、产品 PROD_013、' +
-  '生产批 DEV_PL_012、客户批 DEV_CL_012，需要查找历史调查记录。';
+// 使用经工程师确认的既有 Development Query 原文；不自动发起请求。
+const EXAMPLE_QUERIES = {
+  Q001: 'PROD_001 在 OQC 发现焊线脱落，拉力检查显示焊点剥离，涉及客户 CUS_001、生产批 DEV_PL_001、客户批 DEV_CL_001，原因尚未确认。',
+  Q002: '声学扫描发现塑封空洞 molding void，涉及客户 CUS_001、产品 PROD_013、生产批 DEV_PL_012、客户批 DEV_CL_012，需要查找历史调查记录。',
+  Q003: '客户收货后发现 BGA 锡球缺失，涉及客户 CUS_004、产品 PROD_006、生产批 DEV_PL_013、客户批 DEV_CL_013，托盘边缘有碰伤痕迹。',
+};
 
 // 核心业务状态（与 casetrace.answer.cli 一致）；HTTP 边界状态另见 STATUS_LABELS。
 const STATUS_OK = 'ok';
 const STATUS_NO_HITS = 'no_hits';
 
 const STATUS_LABELS = {
+  retrieved: '检索完成（未生成回答）',
   ok: '成功',
   no_hits: '无候选历史案例',
   model_failed: '模型调用失败',
@@ -45,20 +47,30 @@ const CONTEXT_LABELS = {
   sheet: '来源表', failure_mode_id: 'Failure Mode', closure_status: '结案状态',
   product_name: '产品名称', product_family: '产品族', package_route: '封装路线',
   customer_id: '客户', process_id: '工序', process_name: '工序名称',
+  record_type: '记录类型', record_id: '记录 ID',
+  source_document_id: '来源报告编号', source_document_name: '来源报告名称',
+  source_location: '来源具体位置', filename: '上传文件名', csv_line: 'CSV 行号',
 };
 
 const form = document.getElementById('answer-form');
 const queryInput = document.getElementById('query');
 const knownAtInput = document.getElementById('known-at');
-const topKInput = document.getElementById('top-k');
 const submitButton = document.getElementById('submit-button');
+const generateButton = document.getElementById('generate-button');
+const exampleSelect = document.getElementById('example-query');
+const exampleDisclosure = document.getElementById('example-explorer');
 const exampleButton = document.getElementById('example-button');
+const modelStatusLine = document.getElementById('model-status');
 const statusLine = document.getElementById('status');
 const resultBody = document.getElementById('result-body');
 const downloadButton = document.getElementById('download-button');
 
 // 请求进行中标记：用于兜底阻止重复提交（控件本身也会被禁用）。
 let inFlight = false;
+let modelConfigured = false;
+let datasetReady = false;
+let datasetSnapshotId = null;
+let datasetLoadSequence = 0;
 // 当前下载对象 URL；替换或清除时必须 revoke，避免泄漏。
 let downloadUrl = null;
 
@@ -130,10 +142,10 @@ function setStatus(text, kind) {
 
 function setBusy(busy) {
   inFlight = busy;
-  for (const element of [queryInput, knownAtInput, topKInput, submitButton, exampleButton]) {
+  for (const element of [queryInput, knownAtInput, submitButton, exampleButton, exampleSelect]) {
     element.disabled = busy;
   }
-  submitButton.textContent = busy ? '请求中…' : '提交请求';
+  generateButton.disabled = busy || !modelConfigured;
 }
 
 function clearDownload() {
@@ -180,7 +192,7 @@ function hasReadableAnswer(record, status) {
     && typeof record.query.known_at === 'string'
     && Array.isArray(record.ranking) && isObject(record.answer)
     && Array.isArray(record.answer.case_answers)
-    && typeof record.answer.insufficiency === 'string'
+    && (typeof record.answer.insufficiency === 'string' || record.answer.insufficiency === null)
     && (status !== STATUS_OK || (
       Array.isArray(record.answer.skipped_candidates)
       && Array.isArray(record.answer.current_gaps)
@@ -188,11 +200,33 @@ function hasReadableAnswer(record, status) {
     ));
 }
 
-function present(httpStatus, body) {
+function hasReadableSearch(record, status) {
+  return isObject(record) && record.status === status
+    && isObject(record.query) && typeof record.query.text === 'string'
+    && typeof record.query.known_at === 'string'
+    && Array.isArray(record.ranking)
+    && isObject(record.context) && Array.isArray(record.context.cases)
+    && isObject(record.response) && record.response.called_model === false
+    && (status === STATUS_NO_HITS
+      ? record.ranking.length === 0 && record.context.cases.length === 0
+      : record.ranking.length > 0 && record.context.cases.length === record.ranking.length);
+}
+
+function present(httpStatus, body, mode) {
   const status = typeof body.status === 'string' ? body.status : '';
   const message = typeof body.message === 'string' ? body.message : '';
   const record = isObject(body.record) ? body.record : null;
 
+  if (mode === 'search' && httpStatus === 200) {
+    if (!['retrieved', STATUS_NO_HITS].includes(status) || !hasReadableSearch(record, status)) {
+      renderUnreadable('检索记录结构不完整', '服务端未返回可用的候选与证据，本次未得到可用结果。');
+      setStatus('检索记录结构不完整。', 'error');
+      return;
+    }
+    renderSearch(record);
+    setStatus(message || STATUS_LABELS[status], status === STATUS_NO_HITS ? 'warning' : 'ok');
+    return;
+  }
   if (httpStatus === 200 && (status === STATUS_OK || status === STATUS_NO_HITS)
     && !hasReadableAnswer(record, status)) {
     renderUnreadable(`运行记录结构不完整（HTTP ${httpStatus}）`,
@@ -202,7 +236,10 @@ function present(httpStatus, body) {
   }
   if (httpStatus === 200 && status === STATUS_OK) {
     renderSuccess(record);
-    setStatus(`HTTP 200｜status=ok${message ? `｜${message}` : ''}`, 'ok');
+    const noAdoption = record.answer.case_answers.length === 0;
+    setStatus(noAdoption
+      ? '支持不足：本次模型未采用历史案例，请查看具体缺口；这不是系统故障。'
+      : `调查参考已生成。${message ? ` ${message}` : ''}`, noAdoption ? 'warning' : 'ok');
     return;
   }
   if (httpStatus === 200 && status === STATUS_NO_HITS) {
@@ -230,14 +267,45 @@ function present(httpStatus, body) {
 
 function renderSuccess(record) {
   const fragment = document.createDocumentFragment();
-  fragment.append(renderRunSummary(record));
   const answer = isObject(record.answer) ? record.answer : {};
   fragment.append(renderAdoptedCases(record, answer.case_answers));
-  fragment.append(renderRanking(record.ranking));
-  fragment.append(renderSkipped(answer.skipped_candidates));
   fragment.append(renderGaps(answer.current_gaps, answer.insufficiency));
+  const audit = node('details', 'retrieval-audit');
+  audit.append(node('summary', null, '核对检索候选与本次请求'));
+  audit.append(renderSkipped(answer.skipped_candidates));
+  audit.append(renderRanking(record.ranking));
+  audit.append(renderCandidateEvidence(record));
+  audit.append(renderRunSummary(record));
+  fragment.append(audit);
   resultBody.replaceChildren(fragment);
   setDownload(record, '下载本次运行记录（JSON）', record.status || STATUS_OK);
+}
+
+function renderCandidateEvidence(record) {
+  const section = node('section', 'block');
+  section.append(node('h3', null, '候选案例与证据原文'));
+  section.append(node('p', 'hint', '展开可核对历史记录。候选是否值得参考及证据是否支持回答，仍需审阅。'));
+  for (const item of record.ranking) {
+    const entry = contextCase(record, item.case_id);
+    const card = node('article', 'card');
+    card.append(node('h4', null, `${item.rank}. ${item.case_id}`));
+    card.append(node('p', 'field-value', entry && entry.case ? entry.case.abnormal_description : '（缺少历史原文）'));
+    card.append(renderContextCase(record, item.case_id));
+    section.append(card);
+  }
+  return section;
+}
+
+function renderSearch(record) {
+  const fragment = document.createDocumentFragment();
+  fragment.append(renderRunSummary(record));
+  fragment.append(node('p', 'callout', record.status === STATUS_NO_HITS
+    ? '没有检索候选，未调用模型；这不表示资料库不存在相关案例，可补充或调整当前已知信息后再搜索。'
+    : '本次仅检索历史候选与证据原文，未调用模型、未生成调查参考，也未判断这些候选是否足以支持回答。'));
+  fragment.append(renderRanking(record.ranking));
+  if (record.ranking.length) fragment.append(renderCandidateEvidence(record));
+  resultBody.replaceChildren(fragment);
+  setDownload(record, '下载本次检索记录（JSON）', record.status);
 }
 
 function renderRunSummary(record) {
@@ -250,14 +318,22 @@ function renderRunSummary(record) {
 
   const grid = node('div', 'summary-grid');
   grid.append(fieldBlock('Query 原文', query.text || '（未提供）'));
-  grid.append(fieldBlock('快照时点 known_at', query.known_at || snapshot.known_at || '（未提供）'));
-  grid.append(fieldBlock('快照 ID', snapshot.snapshot_id || '（未提供）'));
-  grid.append(fieldBlock('检索方法与候选数',
-    `${retrieval.requested_method || '（未提供）'}／top_k=${formatValue(retrieval.top_k)}`));
+  grid.append(fieldBlock('资料可用时点', query.known_at || snapshot.known_at || '（未提供）'));
   if (typeof corpus.case_count === 'number') {
     grid.append(fieldBlock('语料规模', `${corpus.case_count} 条历史 Case`));
   }
   section.append(grid);
+  const technical = node('details');
+  technical.append(node('summary', null, '检索配置与资料身份'));
+  technical.append(fieldBlock('快照 ID', snapshot.snapshot_id || '（未提供）'));
+  technical.append(fieldBlock('检索方法与候选数',
+    `${retrieval.requested_method || '（未提供）'}／top_k=${formatValue(retrieval.top_k)}`));
+  if (record.request) {
+    technical.append(fieldBlock('本次模型参数',
+      `输出上限 ${formatValue(record.request.max_tokens)} tokens／温度 ${formatValue(record.request.temperature)}`));
+  }
+  technical.append(fieldBlock('资料审阅状态', corpus.review_status || '（未提供）'));
+  section.append(technical);
   section.append(node('p', 'hint',
     '下列内容全部对应本次提交；历史原因与历史措施是该历史 Case 的结案记录，'
     + '不是当前 Incident 的最终结论，也不是当前建议。'));
@@ -274,31 +350,102 @@ function renderAdoptedCases(record, caseAnswers) {
       + '这不是请求失败；下方仍列出本次的信息不足。'));
     return section;
   }
-  const cards = node('div', 'cards');
-  for (const item of items) {
-    cards.append(renderCaseCard(record, item));
+  section.append(node('p', 'hint', '先查看历史基本信息，点击案例编号展开调查参考。以下均为历史记录，不代表当前异常结论。'));
+  const tableWrap = node('div', 'table-scroll');
+  tableWrap.tabIndex = 0;
+  tableWrap.setAttribute('role', 'region');
+  tableWrap.setAttribute('aria-label', '采用的历史案例基本信息表');
+  const table = node('table', 'case-overview');
+  const head = node('thead');
+  const headings = node('tr');
+  for (const label of ['历史案例', '产品与批次', '发现信息', '历史异常']) {
+    const cell = node('th', null, label);
+    cell.scope = 'col';
+    headings.append(cell);
   }
-  section.append(cards);
+  head.append(headings);
+  table.append(head);
+  const body = node('tbody');
+  const descriptions = node('div', 'case-descriptions');
+  descriptions.append(node('h4', null, '逐案调查参考'));
+  for (const item of items) {
+    const description = renderCaseCard(record, item);
+    descriptions.append(description);
+    const entry = contextCase(record, item.case_id);
+    const row = node('tr');
+    const identity = node('th');
+    identity.scope = 'row';
+    const button = node('button', 'case-link', item.case_id);
+    button.type = 'button';
+    button.setAttribute('aria-label', `展开 ${item.case_id} 的调查参考`);
+    button.addEventListener('click', () => {
+      description.open = true;
+      description.scrollIntoView({behavior: 'smooth', block: 'start'});
+      description.querySelector('summary').focus({preventScroll: true});
+    });
+    identity.append(button, node('span', 'cell-note', '查看详情 ↓'));
+    row.append(identity);
+    const productCell = node('td');
+    const detectionCell = node('td');
+    const details = entry && Array.isArray(entry.details) ? entry.details : [];
+    for (const detail of details) {
+      // 每条 Detail 保持产品、批次和发现事实的对应关系；不合并推断背景。
+      const group = node('div', 'cell-group');
+      const background = entry.background.find(value => value.product_id === detail.product_id);
+      if (details.length > 1) group.append(node('span', 'cell-note', detail.detail_id));
+      group.append(node('strong', null, detail.product_id));
+      if (background) {
+        group.append(node('span', 'cell-note', background.product_name));
+        group.append(node('span', 'cell-note', `客户：${formatValue(background.customer_id)}`));
+      }
+      group.append(node('span', 'cell-note', `生产批：${formatValue(detail.production_lot)}`));
+      group.append(node('span', 'cell-note', `客户批：${formatValue(detail.customer_lot)}`));
+      productCell.append(group);
+      const detection = node('div', 'cell-group');
+      if (details.length > 1) detection.append(node('span', 'cell-note', detail.detail_id));
+      detection.append(node('span', null, formatValue(detail.detection_stage)));
+      detection.append(node('span', 'cell-note', formatValue(detail.detection_time)));
+      detectionCell.append(detection);
+    }
+    if (!details.length) {
+      productCell.append(node('span', 'cell-note', '（未提供）'));
+      detectionCell.append(node('span', 'cell-note', '（未提供）'));
+    }
+    row.append(productCell, detectionCell);
+    row.append(node('td', 'overview-description', entry && entry.case
+      ? entry.case.abnormal_description : '（缺少历史原文）'));
+    body.append(row);
+  }
+  table.append(body);
+  tableWrap.append(table);
+  section.append(tableWrap, node('p', 'hint table-scroll-hint', '表格可左右滑动；点击案例编号查看详情。'), descriptions);
   return section;
 }
 
 function renderCaseCard(record, item) {
   const data = isObject(item) ? item : {};
-  const card = node('article', 'card');
+  const card = node('details', 'case-detail');
 
-  const header = node('div', 'card-header');
+  const header = node('summary', 'case-detail-heading');
   header.append(node('span', 'badge', formatValue(data.case_id)));
-  header.append(node('span', 'tag', '历史案例（非当前结论）'));
+  header.append(node('span', null, '相关依据 · 历史调查 · 来源'));
   card.append(header);
 
-  card.append(fieldBlock('相关性说明（为什么值得查看）', data.relevance_reason));
-  card.append(fieldBlock('当前侧已知事实', textList(data.query_facts)));
-  card.append(fieldBlock('历史侧事实', textList(data.case_facts)));
-  card.append(fieldBlock('历史原因（该 Case 结案确认，不是当前 Incident 结论）',
-    data.historical_root_cause, '不要据此判定当前异常的原因。'));
-  card.append(renderEvidences(data.historical_evidences));
-  card.append(fieldBlock('历史改善措施（当时的处置，不是当前建议）', data.historical_corrective_action));
-  card.append(renderSources(record, data.sources));
+  const content = node('div', 'case-detail-body');
+  content.append(fieldBlock('相关依据｜为什么值得查看', data.relevance_reason));
+  const comparison = node('div', 'fact-comparison');
+  comparison.append(fieldBlock('当前侧已知事实', textList(data.query_facts)));
+  comparison.append(fieldBlock('历史侧事实', textList(data.case_facts)));
+  content.append(comparison);
+  const investigation = node('section', 'historical-investigation');
+  investigation.append(node('h4', null, '历史调查记录'));
+  investigation.append(node('p', 'hint', '以下是该历史 Case 的结论与措施，不是当前异常的最终根因或当前建议。'));
+  investigation.append(fieldBlock('历史原因', data.historical_root_cause));
+  investigation.append(renderEvidences(data.historical_evidences));
+  investigation.append(fieldBlock('历史改善措施', data.historical_corrective_action));
+  content.append(investigation);
+  content.append(renderSources(record, data.sources));
+  card.append(content);
   return card;
 }
 
@@ -372,7 +519,11 @@ function renderContextCase(record, caseId) {
   details.append(fieldBlock('Case（历史原文）', renderObject(entry.case)));
   details.append(fieldBlock('Detail（生产与发现事实）', renderObjectList(entry.details)));
   details.append(fieldBlock('Evidence（检查结果）', renderObjectList(entry.evidences)));
-  details.append(fieldBlock('来源记录（允许进入上下文的字段）', renderObject(entry.source)));
+  if (Array.isArray(entry.source?.records)) {
+    details.append(fieldBlock('结案状态（来源声明）', entry.source.closure_status));
+  }
+  details.append(fieldBlock('来源记录（允许进入上下文的字段）',
+    Array.isArray(entry.source?.records) ? renderObjectList(entry.source.records) : renderObject(entry.source)));
   details.append(fieldBlock('产品背景', renderObjectList(entry.background)));
   details.append(fieldBlock('已确认异常工序', renderObjectList(entry.processes)));
   return details;
@@ -437,7 +588,8 @@ function renderRanking(ranking) {
     const row = node('tr');
     row.append(node('td', null, formatValue(entry.rank)));
     row.append(node('td', null, formatValue(entry.case_id)));
-    row.append(node('td', 'mono', formatValue(entry.score)));
+    const score = typeof entry.score === 'number' ? entry.score.toFixed(3) : formatValue(entry.score);
+    row.append(node('td', 'mono', score));
     row.append(node('td', null, formatValue(entry.matched_terms)));
     tbody.append(row);
   }
@@ -570,11 +722,69 @@ function renderUnreadable(heading, note) {
 // ── 表单与请求 ─────────────────────────────────────────────────────────────
 
 function fillExample() {
-  queryInput.value = EXAMPLE_QUERY;
+  clearResult();
+  queryInput.value = EXAMPLE_QUERIES[exampleSelect.value];
+  exampleDisclosure.open = false;
+  setStatus('示例已填入，可修改后搜索或生成调查参考；尚未提交。', 'info');
   queryInput.focus();
 }
 
-/** 把表单读成 API 契约的三字段；不合法时返回 { error, focus }。 */
+async function loadModelStatus() {
+  try {
+    const response = await fetch('/model-status');
+    const body = await response.json();
+    if (!response.ok || typeof body.configured !== 'boolean') throw new Error('invalid status');
+    modelConfigured = body.configured;
+    modelStatusLine.textContent = modelConfigured
+      ? '模型已配置。点击“生成调查参考”会调用模型，可能产生费用；配置状态不保证调用成功。'
+      : '模型生成未配置，可先搜索并查看证据；密钥配置与生效步骤见设置页。';
+  } catch (error) {
+    modelConfigured = false;
+    modelStatusLine.textContent = '无法读取模型配置状态，搜索仍可使用；请检查服务后刷新页面。';
+  }
+  generateButton.disabled = inFlight || !modelConfigured;
+}
+
+async function loadDatasetStatus() {
+  const sequence = ++datasetLoadSequence;
+  datasetReady = false;
+  const line = document.getElementById('current-dataset');
+  line.textContent = '正在读取当前数据集…';
+  try {
+    const response = await fetch('/dataset', { cache: 'no-store' });
+    const data = await response.json();
+    if (sequence !== datasetLoadSequence) return;
+    if (!response.ok || typeof data.known_at !== 'string'
+      || typeof data.snapshot_id !== 'string' || !data.snapshot_id) throw new Error('dataset unavailable');
+    if (datasetSnapshotId !== null && datasetSnapshotId !== data.snapshot_id) {
+      clearResult();
+      if (!inFlight) setStatus('当前数据集已更新，请重新搜索。', 'info');
+    }
+    datasetSnapshotId = data.snapshot_id;
+    knownAtInput.value = data.known_at;
+    line.textContent = `当前数据集：${data.name} · ${data.case_count} 个案例 · 更新于 ${data.updated_at}`;
+    exampleDisclosure.hidden = data.is_upload;
+    datasetReady = true;
+  } catch (error) {
+    if (sequence !== datasetLoadSequence) return;
+    datasetReady = false;
+    line.textContent = '无法读取当前数据集，请检查服务与数据库后刷新页面。';
+  }
+}
+
+async function loadRuntimeSettings() {
+  const line = document.getElementById('runtime-settings');
+  try {
+    const response = await fetch('/runtime-settings', { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok) throw new Error('unavailable');
+    line.textContent = `已保存设置：Top K ${data.top_k} · 回答输出上限 ${data.max_tokens} tokens。提交时读取最新设置，本次实际值见结果。`;
+  } catch (error) {
+    line.textContent = '无法读取实例设置，请检查服务与数据库。不会以默认值替代；提交结果以服务端响应为准。';
+  }
+}
+
+/** 网页省略 top_k，服务端在请求开始读取已保存值。 */
 function readForm() {
   const query = queryInput.value;
   if (!query.trim()) {
@@ -582,18 +792,23 @@ function readForm() {
   }
   const knownAt = knownAtInput.value;
   if (!knownAt) {
-    return { error: '请选择快照日期（当前仅支持 2026-09-15）。', focus: knownAtInput };
+    return { error: '请刷新页面以读取当前数据集的登记日期。', focus: knownAtInput };
   }
-  const topK = Number(topKInput.value.trim());
-  if (!Number.isInteger(topK) || topK <= 0) {
-    return { error: 'top_k 必须是正整数。', focus: topKInput };
-  }
-  return { request: { query, known_at: knownAt, top_k: topK } };
+  return { request: { query, known_at: knownAt } };
 }
 
-async function submitAnswer(event) {
+async function submitRequest(event) {
   event.preventDefault();
   if (inFlight) {
+    return;
+  }
+  if (!datasetReady) {
+    setStatus('当前数据集状态尚未就绪，请稍后或刷新页面重试。', 'error');
+    return;
+  }
+  const mode = event.submitter === generateButton ? 'answer' : 'search';
+  if (mode === 'answer' && !modelConfigured) {
+    setStatus('模型生成未配置或状态未知，请先搜索并查看证据。', 'warning');
     return;
   }
   const parsed = readForm();
@@ -605,12 +820,12 @@ async function submitAnswer(event) {
 
   clearResult();
   setBusy(true);
-  setStatus('已提交，等待服务端返回…', 'pending');
+  setStatus(mode === 'search' ? '正在检索历史案例与证据…' : '正在生成调查参考，请等待…', 'pending');
 
   let response;
   let text;
   try {
-    response = await fetch('/answer', {
+    response = await fetch(mode === 'search' ? '/search' : '/answer', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(parsed.request),
@@ -639,7 +854,12 @@ async function submitAnswer(event) {
   }
 
   try {
-    present(response.status, body);
+    present(response.status, body, mode);
+    const resultSnapshotId = body.record?.snapshot?.snapshot_id;
+    if (datasetSnapshotId && resultSnapshotId && resultSnapshotId !== datasetSnapshotId) {
+      resultBody.prepend(node('p', 'callout warning',
+        '这次请求使用更新前的数据集，以下结果及下载记录仍属于此前资料。请重新搜索以查询当前数据集。'));
+    }
   } catch (error) {
     // 渲染意外失败也不把页面留在半成品状态。
     renderUnreadable('页面处理响应时出错', '本次未得到可用结果，输入已保留，可手动重试。');
@@ -649,9 +869,15 @@ async function submitAnswer(event) {
   }
 }
 
-form.addEventListener('submit', submitAnswer);
+form.addEventListener('submit', submitRequest);
 exampleButton.addEventListener('click', fillExample);
 
-// 初始值固定为服务端支持的快照与默认 top_k；初次加载不自动提交。
+// 初次加载不自动搜索或调用模型。
 knownAtInput.value = SNAPSHOT_DATE;
-topKInput.value = String(DEFAULT_TOP_K);
+loadModelStatus();
+loadDatasetStatus();
+loadRuntimeSettings();
+window.addEventListener('pageshow', event => {
+  loadRuntimeSettings();
+  if (event.persisted) loadDatasetStatus();
+});
