@@ -13,13 +13,13 @@
 | M3-04 | [BM25](dev-v3-bm25-m3-04-fixed.json)、[Embedding](dev-v3-embedding-m3-04-fixed.json)、[Hybrid](dev-v3-hybrid-m3-04-fixed.json)（dev-v3 r2，各带 `.cli.txt`），evaluation-result-v2 | [三方法对照与无收益说明](dev-v3-hybrid-m3-04.md) |
 | M3-05 | [Rerank](dev-v3-rerank-m3-05.json)（dev-v3 r2，候选段 = Embedding 全量 9 条，重排 = bge-reranker-base，带 `.cli.txt`），evaluation-result-v2 | [重排评估与对照（同样无收益）](dev-v3-rerank-m3-05.md) |
 | M3-06 | [R0](dev-v3-m3-06-r0.json)、[R1](dev-v3-m3-06-r1.json)、[R2](dev-v3-m3-06-r2.json)、[R3](dev-v3-m3-06-r3.json)（dev-v3 r2，BM25 加三个 Query 词项过滤变体，各带 `.cli.txt`；`dev-v3-m3-06-r0-pre-variant.json` 是变体引入前的同配置重跑），evaluation-result-v2 | [针对性实验与产品族探针](dev-v3-m3-06-targeted-experiments.md) |
-| M3-07 | [最终结果](dev-v3-m3-07-final.json)（= R3 同配置的最终复跑，带 `.cli.txt`），evaluation-result-v2 | [四方法同版汇总与选型](dev-v3-m3-07-selection.md)、[业务与评估约定](../docs/design/behavior-contracts.md#3-grounded-answer-核心约定) |
+| M3-07 | [最终结果](dev-v3-m3-07-final.json)（= R3 同配置的最终复跑，带 `.cli.txt`），evaluation-result-v2 | [检索流程、方案对比与选型](dev-v3-m3-07-selection.md)、[业务与评估约定](../docs/design/behavior-contracts.md#3-grounded-answer-核心约定) |
 | M4-04 | [回答质量评估](dev-v3-m4-answer-evaluation.md)（accepted，学习展示范围），[v10](m4/dev-v3-answer-v10/)、[原语义审阅](m4/dev-v3-answer-v10/semantic-review.json)保留；两处措辞仅记限制，不继续修复/重跑；旧 qrels/指标不冒充新口径 | [业务与评估约定](../docs/design/behavior-contracts.md#3-grounded-answer-核心约定) |
 | M6-04（精简） | [Locked Test R3 单次运行](locked-test-v1/r3.json)，evaluation-result-v2（带 `.cli.txt`） | [记录与限制](locked-test-v1/README.md)；按用户决定只验证评估链路，不做五方法对比或调参 |
 
 M2 的终端输出与测试日志是对应交付的附件，不代表当前全套检查状态。dev-v3 于 2026-09-25 初次确认，2026-09-26 用户更正 Q001×C007（45 对 `human_confirmed`，revision 2）；M3-04 复验后的三方法同版结果为 `dev-v3-*-m3-04-fixed.json`，M3-05 重排结果为 `dev-v3-rerank-m3-05.json`（其候选段即 Embedding 全量 9 条，前后对比共享同一候选集合）；无 `-fixed` 后缀的 M3-04 文件保留为验收前历史结果，`dev-v3-*-m3-03-r2.json` 为单方法参考结果，旧 `dev-v3-*-m3-03.json` 保留为 r1 历史结果，**与 dev-v2 结果不可互相比较**。
 
-M3-06 的 R1–R3 由**实验变体**方法产生（`bm25_drop_negation_labels` 等，登记在 `runner.EXPERIMENTAL_RETRIEVER_FACTORIES`），与生产方法分表；它们只在 Query 侧过滤词项，语料、索引与指标口径与 R0 相同。**M3-07 已按证据选定 R3 的配置为默认检索方案**（`recall@4 0.9600`、逐 Query 无退步、无模型依赖），最终结果另存为 `dev-v3-m3-07-final.json`；Rerank（与候选段指标相同）与 Hybrid（唯一聚合退步）不采用，但结果与实验报告全部保留；`bm25` 与 `embedding` 保留为可切换对照。选型依据与局限见 [选型报告](dev-v3-m3-07-selection.md) 第 7 节。
+M3-06 的 R1–R3 由**实验变体**方法产生（`bm25_drop_negation_labels` 等，登记在 `runner.EXPERIMENTAL_RETRIEVER_FACTORIES`），与生产方法分表；它们只在 Query 侧过滤词项，语料、索引与指标口径与 R0 相同。**M3-07 已按证据选定 R3 的配置为默认检索方案**（`recall@4 0.9600`、逐 Query 无退步、无模型依赖），最终结果另存为 `dev-v3-m3-07-final.json`；Rerank（与候选段指标相同）与 Hybrid（唯一聚合退步）不采用，但结果与实验报告全部保留；`bm25` 与 `embedding` 保留为可切换对照。选型依据与局限见[检索实验的最终选型](dev-v3-m3-07-selection.md#3-最终选型)。
 
 ## 复现与比较
 

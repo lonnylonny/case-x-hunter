@@ -4,6 +4,8 @@
 
 输入当前已知异常，查找历史案例、核对证据，并生成带来源的调查参考。历史结论不代表当前异常的最终根因。
 
+演示案例如何生成、一次调查如何存入数据库，见[模拟案例的建模依据](docs/data/case-model-overview.md)。
+
 ## 可以做什么
 
 - **搜索案例**：无需模型密钥，查看候选案例与证据原文。
@@ -41,7 +43,7 @@ bash scripts/start-demo.sh
 
 ## 检索选择与项目边界
 
-实现并比较了 BM25、Embedding、Hybrid 和 Rerank，最终保留 **BM25 + Query 侧否定小句／标签词过滤（R3）**。选型依据、指标与失败案例见 [检索实验](results/dev-v3-m3-07-selection.md)、[Locked Test](results/locked-test-v1/README.md) 和 [回答质量审阅](results/dev-v3-m4-answer-evaluation.md)。
+比较关键词匹配、按语义查找、两路合并和再次排序后，最终采用 **先整理异常描述，再按关键词查找历史案例**。检索流程、方案对比表与选择理由见[检索实验](results/dev-v3-m3-07-selection.md)；另有[独立测试记录](results/locked-test-v1/README.md)和[回答质量审阅](results/dev-v3-m4-answer-evaluation.md)。
 
 数据规模小，内置案例均为合成资料。引用可定位不等于语义正确，软件测试通过不代表回答可靠；旧实验指标不适用于新上传资料。
 
