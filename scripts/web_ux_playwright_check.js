@@ -1,0 +1,95 @@
+// Playwright MCP browser_run_code_unsafe 的 filename 入口。
+// 先启动只读 serve_audit.py；生成只使用 Q005 回放，不调用真实模型、不写数据库。
+async page => {
+  const base = 'http://127.0.0.1:8028';
+  const shots = 'docs/reviews/frontend-redesign-2026-11-07';
+  const checks = [];
+  const check = (name, value) => { if (!value) throw new Error(name); checks.push(name); };
+  await page.setViewportSize({width:1440, height:900});
+  await page.goto(base + '/');
+  await page.waitForFunction(() => document.querySelector('#current-dataset').textContent.includes('9 个案例'));
+  check('Tabler locally served', await page.locator('link[href*="tabler-1.4.0"]').count() === 1);
+  await page.locator('#submit-button').click();
+  check('empty query focuses input', await page.locator('#query').evaluate(n => n === document.activeElement));
+  await page.screenshot({path: shots + '/home.png', fullPage:true});
+  for (const example of ['Q001', 'Q002', 'Q003']) {
+    await page.locator('#example-explorer summary').click();
+    await page.locator('#example-query').selectOption(example);
+    await page.locator('#example-button').click();
+    await page.locator('#submit-button').click();
+    await page.waitForFunction(() => document.querySelector('.candidate-card'));
+    check(example + ' returns candidates', await page.locator('.candidate-card').count() > 0);
+    check(example + ' focuses result heading', await page.locator('#result-heading').evaluate(n => n === document.activeElement));
+  }
+  await page.locator('#example-explorer summary').click();
+  await page.locator('#example-query').selectOption('Q001');
+  await page.locator('#example-button').click(); await page.locator('#submit-button').click();
+  await page.waitForFunction(() => document.querySelector('.candidate-card'));
+  const boxes = page.locator('.compare-choice input');
+  await boxes.nth(0).check(); await boxes.nth(1).check(); await boxes.nth(2).check();
+  check('three-case selection limit', await boxes.nth(3).isDisabled());
+  await boxes.nth(2).uncheck();
+  await page.getByRole('button', {name:'比较已选案例（2/3）', exact:true}).click();
+  check('comparison contains evidence and historical causes', (await page.locator('.comparison-table').innerText()).includes('调查证据'));
+  await page.screenshot({path:shots + '/comparison.png', fullPage:true});
+  await page.locator('#query').fill('zzzxqv987654'); await page.locator('#submit-button').click();
+  await page.waitForFunction(() => document.querySelector('#result-body').textContent.includes('没有检索候选'));
+  check('no hits offers library route', await page.locator('#result-body a[href="/library"]').count() === 1);
+  await page.route('**/search', route => route.abort('failed'));
+  await page.locator('#query').fill('焊线脱落'); await page.locator('#submit-button').click();
+  await page.waitForFunction(() => !document.querySelector('#submit-button').disabled);
+  check('network failure retains input', await page.locator('#query').inputValue() === '焊线脱落');
+  check('network failure distinct from no hits', (await page.locator('#status').innerText()).includes('网络请求失败'));
+  await page.unroute('**/search');
+  await page.locator('#query').fill('已排除外观碰伤与运输损伤的可能，检查重点在键合界面：OQC 拉力试验显示焊线自焊盘脱开，涉及客户 CUS_002、产品 PROD_004、生产批 DEV_PL_014、客户批 DEV_CL_014，原因尚未确认。');
+  await page.locator('#generate-button').click();
+  await page.waitForFunction(() => document.querySelector('.case-detail'));
+  await page.locator('#result-body .case-link').first().click();
+  await page.locator('.sources summary').first().click();
+  await page.locator('.sources .source-link').filter({hasText:'调查证据 E007'}).click();
+  check('source opens exact evidence', await page.evaluate(() => document.activeElement.dataset.sourceField === 'checkpoint:E007'));
+  await page.screenshot({path:shots + '/evidence.png', fullPage:true});
+  await page.goto(base + '/library');
+  await page.waitForFunction(() => document.querySelector('#case-list button'));
+  check('first case starts within desktop viewport', await page.locator('#case-list').evaluate(n => n.getBoundingClientRect().top < innerHeight - 60));
+  check('management hidden during browsing', await page.locator('#upload-form').isHidden());
+  await page.screenshot({path:shots + '/library.png', fullPage:true});
+  await page.locator('#filter-product').selectOption('PROD_001');
+  check('unapplied filters indicated', (await page.locator('#filter-change').innerText()).includes('尚未应用') || (await page.locator('#filter-change').innerText()).includes('后应用'));
+  await page.locator('#filter-form button[type=submit]').click();
+  await page.waitForFunction(() => document.querySelector('#case-counts').textContent.includes('匹配 2'));
+  check('applied filter in URL', new URL(page.url()).searchParams.get('product_id') === 'PROD_001');
+  await page.getByRole('button',{name:'C001',exact:true}).click();
+  await page.waitForFunction(() => document.querySelector('#case-detail-body h2'));
+  check('case in URL', new URL(page.url()).searchParams.get('case_id') === 'C001');
+  await page.reload(); await page.waitForFunction(() => document.querySelector('#case-detail-body h2'));
+  check('reload restores case and filter', (await page.locator('#case-detail-body h2').innerText()).includes('C001') && await page.locator('#filter-product').inputValue() === 'PROD_001');
+  await page.goBack(); await page.waitForFunction(() => !document.querySelector('#list-view').hidden);
+  check('browser back restores filtered list', (await page.locator('#case-counts').innerText()).includes('匹配 2'));
+  await page.goForward(); await page.waitForFunction(() => document.querySelector('#case-detail-body h2'));
+  await page.getByRole('link',{name:'调查证据',exact:true}).click();
+  check('detail navigation focuses evidence', await page.evaluate(() => document.activeElement.id === 'case-evidence'));
+  await page.screenshot({path:shots + '/detail.png', fullPage:true});
+  await page.locator('#edit-case').click(); await page.waitForFunction(() => !document.querySelector('#case-editor').hidden);
+  check('editor section navigation', await page.locator('.edit-nav a').count() >= 3);
+  await page.getByRole('button',{name:'取消编辑',exact:true}).click();
+  check('cancel preserves detail', await page.locator('#case-detail-body').isVisible());
+  await page.getByRole('link',{name:'资料管理',exact:true}).click();
+  await page.reload(); await page.waitForFunction(() => document.querySelector('#dataset-state').textContent.includes('9 个案例'));
+  check('management restored after reload', await page.locator('#upload-form').isVisible() && await page.locator('#browse-workspace').isHidden());
+  await page.screenshot({path:shots + '/management.png', fullPage:true});
+  await page.goto(base + '/library?case_id=C001&snapshot_id=outdated');
+  await page.waitForFunction(() => document.querySelector('#browser-status').textContent.includes('版本已变化'));
+  check('outdated snapshot cannot silently open current case', await page.locator('#detail-view').isHidden());
+  for (const path of ['/', '/library', '/library?view=manage', '/settings']) {
+    await page.setViewportSize({width:375,height:812}); await page.goto(base + path); await page.waitForLoadState('networkidle');
+    check('375px no page overflow ' + path, await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await page.screenshot({path:shots + '/mobile-' + (path === '/' ? 'home' : path.includes('?') ? 'manage' : path.slice(1)) + '.png',fullPage:true});
+  }
+  await page.goto(base + '/library'); await page.waitForFunction(() => !document.querySelector('#new-case').disabled);
+  await page.locator('#new-case').click();
+  check('mobile new case controls visible', await page.locator('#save-case').evaluate(n => {const r=n.getBoundingClientRect();return r.top>=0 && r.bottom <= innerHeight;}));
+  await page.screenshot({path:shots + '/mobile-editor.png',fullPage:true});
+  await page.locator('#cancel-edit').click();
+  return {passed:checks.length, checks};
+}

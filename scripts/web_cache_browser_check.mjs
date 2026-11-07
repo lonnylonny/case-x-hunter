@@ -103,26 +103,26 @@ try {
   await go('/settings', '旧版设置');
   await go('/', '旧版搜索');
   legacy = false;
-  await go('/?ui_probe=fresh', 'Case-X-Hunter 历史案例参考');
+  await go('/?ui_probe=fresh', '搜索历史案例');
   await check('fresh URL gets the new page', '!!document.getElementById("manage-cases")');
   const oldSettingsHits = hits.get('/settings');
   await go('/settings', '旧版设置');
   assert.equal(hits.get('/settings'), oldSettingsHits, 'old unversioned URL actually came from browser cache');
   console.log('REPRODUCED: navigation to the old URL reuses the cached old page');
   checks++;
-  await go('/?refresh_ui=1', 'Case-X-Hunter 历史案例参考');
+  await go('/?refresh_ui=1', '搜索历史案例');
   await go('/settings', '设置');
-  await check('cache repair replaces the already cached settings page', 'document.querySelectorAll("nav a").length===3 && !document.getElementById("upload-form")');
-  await go('/', 'Case-X-Hunter 历史案例参考');
+  await check('cache repair replaces the already cached settings page', 'document.querySelectorAll(".page-header nav a").length===3 && !document.getElementById("upload-form")');
+  await go('/', '搜索历史案例');
   await check('ordinary startup URL is new after cache repair', '!!document.getElementById("manage-cases")');
   await eventually(() => evaluate('typeof datasetReady !== "undefined" && datasetReady'));
   await evaluate('document.getElementById("query").value="焊线脱落"; document.getElementById("answer-form").requestSubmit()');
   await eventually(() => evaluate('document.getElementById("result-body").textContent.includes("当前资料库为空")'));
   await check('empty dataset is a business state with a library entry', 'document.getElementById("status").textContent.includes("empty_dataset") && Array.from(document.querySelectorAll("a")).some(a => a.getAttribute("href") === "/library") && document.getElementById("download-button").hidden');
-  for (const [path, heading] of [['/settings', '设置'], ['/', 'Case-X-Hunter 历史案例参考'], ['/library', '案例资料库'], ['/', 'Case-X-Hunter 历史案例参考']]) {
+  for (const [path, heading] of [['/settings', '设置'], ['/', '搜索历史案例'], ['/library', '案例资料库'], ['/', '搜索历史案例']]) {
     await evaluate(`Array.from(document.querySelectorAll('nav a')).find(link=>link.pathname===${JSON.stringify(path)}).click()`);
     await eventually(() => evaluate(`document.querySelector('h1')?.textContent===${JSON.stringify(heading)}`));
-    await check(`navigation stays current at ${path}`, 'new URLSearchParams(location.search).has("ui") && document.querySelectorAll("nav a").length===3');
+    await check(`navigation stays current at ${path}`, 'new URLSearchParams(location.search).has("ui") && document.querySelectorAll(".page-header nav a").length===3');
   }
   await check('loaded assets use the same UI content version', 'Array.from(document.querySelectorAll("script[src],link[rel=stylesheet]")).every(el=>new URL(el.src||el.href).searchParams.get("ui")===new URLSearchParams(location.search).get("ui"))');
   console.log(`${checks} browser cache upgrade checks passed (real FastAPI pages, synthetic read APIs)`);

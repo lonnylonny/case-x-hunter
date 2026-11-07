@@ -1,0 +1,2 @@
+[   26417ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8028/search:0
+[   26534ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ http://127.0.0.1:8027/runtime-settings:0

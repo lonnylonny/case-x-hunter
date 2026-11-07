@@ -43,6 +43,87 @@ let currentCase = null;
 let savingCase = false;
 let deleting = false;
 let deletePending = false;
+const filterNames = Array.from(filterForm.querySelectorAll('[name]'), input => input.name);
+let appliedFilters = {};
+let restoringLocation = false;
+let locationRead = 0;
+let lastLibraryURL = location.href;
+
+function showWorkspace(manage) {
+  document.getElementById('browse-workspace').hidden = manage;
+  document.getElementById('management-workspace').hidden = !manage;
+  for (const [id, active] of [['browse-tab', !manage], ['manage-tab', manage]]) {
+    const tab = document.getElementById(id);
+    tab.classList.toggle('active', active);
+    if (active) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current');
+  }
+}
+
+function syncLibraryURL(caseId = '', replace = false) {
+  if (restoringLocation) return;
+  const url = new URL(location.href);
+  for (const key of [...filterNames, 'page', 'page_size', 'case_id', 'snapshot_id', 'sort']) url.searchParams.delete(key);
+  for (const [key, value] of Object.entries(appliedFilters)) if (value) url.searchParams.set(key, value);
+  const sort = document.getElementById('library-sort').value;
+  if (sort !== 'original') url.searchParams.set('sort', sort);
+  if (page > 1) url.searchParams.set('page', page);
+  if (pageSize.value !== '20') url.searchParams.set('page_size', pageSize.value);
+  if (caseId) { url.searchParams.set('case_id', caseId); url.searchParams.set('snapshot_id', currentDataset.snapshot_id); }
+  if (url.href !== location.href) history[replace ? 'replaceState' : 'pushState']({}, '', url);
+  lastLibraryURL = location.href;
+}
+
+function showAppliedFilters() {
+  const chips = document.getElementById('applied-filters'); chips.replaceChildren();
+  for (const input of filterForm.querySelectorAll('[name]')) {
+    const value = appliedFilters[input.name]; if (!value) continue;
+    const label = filterForm.querySelector(`label[for="${input.id}"]`).textContent;
+    const display = input.tagName === 'SELECT' ? Array.from(input.options).find(option => option.value === value)?.textContent || value : value;
+    const remove = element('button', `${label}：${display} ×`); remove.className = 'secondary'; remove.type = 'button';
+    remove.setAttribute('aria-label', `清除${label}筛选`);
+    remove.addEventListener('click', () => {
+      if (filterFields.disabled || browsing) return;
+      appliedFilters[input.name] = ''; input.value = ''; page = 1; readCases();
+    }); chips.append(remove);
+  }
+  showFilterDraftStatus();
+}
+
+function showFilterDraftStatus() {
+  const dirty = filterNames.some(name => filterForm.elements.namedItem(name).value !== (appliedFilters[name] || ''));
+  document.getElementById('filter-change').textContent = dirty ? '筛选条件已修改，点击“筛选案例”后应用。当前列表仍使用已应用条件。' : '';
+}
+
+async function restoreLocation() {
+  const read = ++locationRead;
+  restoringLocation = true;
+  const params = new URLSearchParams(location.search);
+  showWorkspace(params.get('view') === 'manage');
+  appliedFilters = {};
+  for (const input of filterForm.querySelectorAll('[name]')) {
+    const value = (params.get(input.name) || '').slice(0, 200);
+    appliedFilters[input.name] = value;
+    if (input.tagName === 'SELECT' && value && !Array.from(input.options).some(option => option.value === value)) input.add(new Option(value, value));
+    input.value = value;
+  }
+  const sort = params.get('sort');
+  document.getElementById('library-sort').value = ['date-desc', 'date-asc'].includes(sort) ? sort : 'original';
+  const size = params.get('page_size');
+  pageSize.value = ['10','20','50','100'].includes(size) ? size : '20';
+  const requestedPage = Number(params.get('page'));
+  page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  await refreshDataset(null, true);
+  if (read !== locationRead) return;
+  const caseId = params.get('case_id');
+  const snapshot = params.get('snapshot_id');
+  if (caseId && currentDataset && referenceData) {
+    if (snapshot && snapshot !== currentDataset.snapshot_id) {
+      status('链接中的资料版本已变化。旧回答证据仍属于原快照；请在当前列表重新核对案例。', 'warning');
+    } else await openCase(caseId);
+  }
+  if (read === locationRead) { restoringLocation = false; lastLibraryURL = location.href; }
+}
+
 
 function element(tag, text) {
   const node = document.createElement(tag);
@@ -60,6 +141,8 @@ function updateDatasetButtons() {
   restoreButton.disabled = uploading || editing || savingCase || deleting || !currentDataset;
   newCaseButton.disabled = uploading || editing || savingCase || browsing || deleting || !currentDataset || !referenceData;
   refreshButton.disabled = uploading || savingCase || deletePending;
+  document.getElementById('refresh-browser').disabled = refreshButton.disabled;
+  document.getElementById('library-sort').disabled = browsing || editing || savingCase || deletePending;
   document.getElementById('back-to-list').disabled = deletePending;
   filterFields.disabled = uploading || editing || savingCase || deleting || !currentDataset || !referenceData;
   document.getElementById('edit-case').disabled = uploading || editing || savingCase || browsing || deleting || !currentCase;
@@ -79,11 +162,12 @@ function fillDescription(parent, entries) {
 function showDataset(data) {
   currentDataset = data;
   stateLine.textContent = `${data.name} · ${data.case_count} 个案例`;
+  document.getElementById('browse-dataset').textContent = `${data.name} · ${data.case_count} 案 · 资料可用日期 ${data.known_at}`;
   const origins = {builtin_demo: '内置合成演示资料', csv_upload: 'CSV 上传资料', user_maintained: '用户维护资料（原出处见详情）', other: '其他运行资料'};
   fillDescription(details, [
     ['来源类型', origins[data.source_type] || '其他运行资料'],
     ['案例 / 明细 / 调查证据', `${data.case_count} / ${data.detail_count} / ${data.evidence_count}`],
-    ['更新时间', data.updated_at], ['完整可用日期', data.known_at],
+    ['更新时间', CaseUI.date(data.updated_at)], ['完整可用日期', data.known_at],
     ['可用性依据（登记声明）', data.basis],
     ['审阅状态', data.review_status === 'draft_pending_human_review' ? 'draft · 待人工审阅' : data.review_status],
   ]);
@@ -125,6 +209,7 @@ function invalidateDataset(message) {
   details.replaceChildren();
   identities.replaceChildren();
   stateLine.textContent = message;
+  document.getElementById('browse-dataset').textContent = message;
   status(message, 'error');
   updateDatasetButtons();
 }
@@ -155,7 +240,7 @@ function readError(error) {
 
 function caseParams(expected) {
   const params = new URLSearchParams();
-  for (const input of filterForm.querySelectorAll('[name]')) params.set(input.name, input.value);
+  for (const name of filterNames) params.set(name, appliedFilters[name] || '');
   params.set('page', page);
   params.set('page_size', pageSize.value);
   if (expected) params.set('snapshot_id', expected);
@@ -216,14 +301,14 @@ function addTable(parent, title, headers, rows) {
   parent.append(wrap);
 }
 
-async function refreshDataset(expected = null) {
+async function refreshDataset(expected = null, preservePage = false) {
   if (deletePending) return;
   const generation = ++datasetRead;
   viewRead++;
   currentDataset = null;
   clearViews();
   browsing = true;
-  page = 1;
+  if (!preservePage) page = 1;
   stateLine.textContent = '正在读取数据状态…';
   details.replaceChildren();
   identities.replaceChildren();
@@ -249,8 +334,11 @@ async function refreshDataset(expected = null) {
 
 function renderList(data) {
   closeDeleteConfirmation();
+  currentCase = null;
   listData = data;
   page = data.page;
+  syncLibraryURL();
+  showAppliedFilters();
   listView.hidden = false;
   detailView.hidden = true;
   detailBody.replaceChildren();
@@ -260,7 +348,7 @@ function renderList(data) {
   firstPage.hidden = data.items.length > 0 || data.matched_count === 0;
   document.getElementById('page-state').textContent = `第 ${page} / ${Math.max(1, Math.ceil(data.matched_count / data.page_size))} 页`;
   if (!data.total_count) {
-    status('案例资料库为空。可点击“新增案例”，或在下方导入 CSV／载入完整演示数据。', 'warning');
+    status('案例资料库为空。可点击“新增案例”，或进入“资料管理”导入 CSV／载入完整演示数据。', 'warning');
   } else if (!data.matched_count) {
     status('筛选无结果。请调整条件或清空筛选。', 'warning');
   } else if (!data.items.length) {
@@ -274,7 +362,10 @@ function renderList(data) {
     for (const label of ['编号 / 异常摘要', '产品 / 客户', '已确认异常站点', '发现日期范围', '子记录']) row.append(element('th', label));
     head.append(row);
     const body = element('tbody');
-    for (const item of data.items) {
+    const items = [...data.items];
+    const sort = document.getElementById('library-sort').value;
+    if (sort !== 'original') items.sort((a, b) => sort === 'date-desc' ? b.detection_end.localeCompare(a.detection_end) : a.detection_start.localeCompare(b.detection_start));
+    for (const item of items) {
       const tr = element('tr');
       const values = [null, item.products.map(product => `${product.product_name} (${product.product_id})\n${product.customer_name} (${product.customer_id})`).join('\n\n'),
         item.abnormal_processes.map(process => `${process.process} (${process.process_id})`).join('；'),
@@ -338,7 +429,7 @@ function field(parent, label, value) {
   block.className = 'field-block';
   const heading = element('div', label);
   heading.className = 'field-label';
-  const content = element('p', value ?? '未填写');
+  const content = element('p', CaseUI.label(value) ?? '未填写');
   content.className = 'field-value';
   block.append(heading, content);
   parent.append(block);
@@ -368,6 +459,9 @@ function revisionFieldLabel(path) {
 function renderDetail(data) {
   currentCase = data;
   detailBody.replaceChildren(element('h2', `案例 ${data.case.case_id}`));
+  syncLibraryURL(data.case.case_id);
+  const localNav = element('nav'); localNav.className = 'detail-nav'; localNav.setAttribute('aria-label', '案例详情分区');
+  detailBody.append(localNav);
   const basic = section(detailBody, '历史结论');
   field(basic, '异常描述', data.case.abnormal_description);
   field(basic, '历史结案原因', data.case.root_cause);
@@ -397,7 +491,7 @@ function renderDetail(data) {
   if (!data.groups.length) groups.append(element('p', '未加入分组。'));
   for (const group of data.groups) {
     const card = section(groups, group.group_id);
-    field(card, '分组类型', group.group_type.join('；'));
+    field(card, '分组类型', group.group_type.map(CaseUI.label).join('；'));
     field(card, '分组说明', group.description);
     if (group.other_type_description !== null) field(card, '其他类型说明', group.other_type_description);
     field(card, '本案关联理由', group.association_reason);
@@ -450,11 +544,23 @@ function renderDetail(data) {
     field(entry, '移除记录', revision.removed_records.map(recordLabel).join('、') || '无');
   }
   detailBody.append(revisions);
+  // 证据优先展示；每条批次明细仍保持产品、日期与数量的对应关系。
+  children.before(evidences);
+  for (const [id, title, target] of [['overview', '历史结论', basic], ['evidence', '调查证据', evidences],
+    ['batches', '批次明细', children], ['groups', '关联分组', groups], ['sources', '来源与修订', source]]) {
+    target.id = `case-${id}`;
+    const link = element('a', title); link.href = `#case-${id}`;
+    link.addEventListener('click', event => { event.preventDefault(); CaseUI.focus(target); });
+    localNav.append(link);
+  }
+  const back = element('button', '返回案例概览'); back.type = 'button'; back.className = 'secondary';
+  back.addEventListener('click', () => CaseUI.focus(detailBody)); detailBody.append(back);
 }
 
 async function openCase(caseId, edit = false) {
   if (uploading || editing || savingCase || deletePending || !currentDataset || !referenceData) return;
   closeDeleteConfirmation();
+  currentCase = null;
   const generation = datasetRead;
   const read = ++viewRead;
   const expected = currentDataset.snapshot_id;
@@ -470,7 +576,7 @@ async function openCase(caseId, edit = false) {
     requireIdentity(data.snapshot_id, expected);
     renderDetail(data);
     status(`正在查看 ${caseId} 的完整记录。`, 'ok');
-    detailBody.focus();
+    CaseUI.focus(detailBody);
     if (edit) {
       browsing = false;
       startEditing();
@@ -664,8 +770,8 @@ restoreButton.addEventListener('click', async () => {
   }
 });
 
-filterForm.addEventListener('submit', event => { event.preventDefault(); page = 1; readCases(); });
-document.getElementById('clear-filters').addEventListener('click', () => { filterForm.reset(); page = 1; readCases(); });
+filterForm.addEventListener('submit', event => { event.preventDefault(); appliedFilters = Object.fromEntries(new FormData(filterForm)); page = 1; readCases(); });
+document.getElementById('clear-filters').addEventListener('click', () => { filterForm.reset(); appliedFilters = {}; page = 1; readCases(); });
 previousPage.addEventListener('click', () => { page--; readCases(); });
 nextPage.addEventListener('click', () => { page++; readCases(); });
 firstPage.addEventListener('click', () => { page = 1; readCases(); });
@@ -676,14 +782,35 @@ document.getElementById('back-to-list').addEventListener('click', () => {
   if (editing && !leaveEditing()) return;
   viewRead++;
   browsing = false;
-  if (listData) renderList(listData);
+  if (listData) { renderList(listData); CaseUI.focus(caseList); }
   else readCases();
 });
 refreshButton.addEventListener('click', () => { if (!uploading && (!editing || leaveEditing())) refreshDataset(); });
 window.addEventListener('pageshow', event => {
   if (event.persisted && !uploading) {
     if (editing) markEditConflict();
-    else refreshDataset();
+    else restoreLocation();
   }
 });
-refreshDataset();
+filterForm.addEventListener('input', showFilterDraftStatus);
+document.getElementById('library-sort').addEventListener('change', () => { if (listData && !editing && !browsing) renderList(listData); });
+document.getElementById('refresh-browser').addEventListener('click', () => refreshButton.click());
+for (const [id, manage] of [['browse-tab', false], ['manage-tab', true]]) {
+  document.getElementById(id).addEventListener('click', event => {
+    event.preventDefault();
+    if (uploading || savingCase || deletePending || (editing && !leaveEditing())) return;
+    const url = new URL(location.href);
+    if (manage) url.searchParams.set('view', 'manage'); else url.searchParams.delete('view');
+    if (url.href !== location.href) history.pushState({}, '', url);
+    lastLibraryURL = location.href; showWorkspace(manage);
+    CaseUI.focus(document.getElementById(manage ? 'management-workspace' : 'browse-workspace'));
+  });
+}
+window.addEventListener('popstate', () => {
+  if (uploading || savingCase || deletePending || (editing && !leaveEditing())) {
+    history.pushState({}, '', lastLibraryURL);
+    return;
+  }
+  restoreLocation();
+});
+restoreLocation();

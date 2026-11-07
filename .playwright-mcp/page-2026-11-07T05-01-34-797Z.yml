@@ -1,0 +1,253 @@
+- generic [active] [ref=f2e1]:
+  - banner [ref=f2e2]:
+    - heading "案例资料库" [level=1] [ref=f2e3]
+    - navigation "页面导航" [ref=f2e4]:
+      - link "搜索历史案例" [ref=f2e5] [cursor=pointer]:
+        - /url: /?ui=b6e210fd82473e00
+      - link "案例资料库" [ref=f2e6] [cursor=pointer]:
+        - /url: /library?ui=b6e210fd82473e00
+      - link "设置" [ref=f2e7] [cursor=pointer]:
+        - /url: /settings?ui=b6e210fd82473e00
+    - paragraph [ref=f2e8]: 查看当前资料、完整调查及来源，无需模型密钥。历史结论仅供参考，资料仍待人工审阅。
+  - main [ref=f2e9]:
+    - region [ref=f2e10]:
+      - heading "当前数据集" [level=2] [ref=f2e11]
+      - status [ref=f2e12]: 内置合成示例 dev-v3 · 9 个案例
+      - generic [ref=f2e13]:
+        - term [ref=f2e14]: 来源类型
+        - definition [ref=f2e15]: 内置合成演示资料
+        - term [ref=f2e16]: 案例 / 明细 / 调查证据
+        - definition [ref=f2e17]: 9 / 9 / 9
+        - term [ref=f2e18]: 更新时间
+        - definition [ref=f2e19]: 2026-11-07T00:00:00
+        - term [ref=f2e20]: 完整可用日期
+        - definition [ref=f2e21]: 2026-09-15
+        - term [ref=f2e22]: 可用性依据（登记声明）
+        - definition [ref=f2e23]: data/dev/demo-v3.json 的九条 Case 被设定为在 2026-09-15 之前已结案且完整可用，沿用 dev-v2 的模拟快照时点；这是模拟约定，不代表已实现通用结案／可用时间过滤。
+        - term [ref=f2e24]: 审阅状态
+        - definition [ref=f2e25]: draft · 待人工审阅
+      - group [ref=f2e26]:
+        - generic "查看资料身份与摘要" [ref=f2e27] [cursor=pointer]
+      - button "刷新数据状态" [ref=f2e28] [cursor=pointer]
+    - region [ref=f2e29]:
+      - heading "浏览案例" [level=2] [ref=f2e30]
+      - button "新增案例" [ref=f2e32] [cursor=pointer]
+      - paragraph [ref=f2e33]: 新增与编辑共用中文分区表单；保存后立即供新搜索使用，无需模型密钥。
+      - group "筛选当前资料" [ref=f2e35]:
+        - generic [ref=f2e37]:
+          - generic [ref=f2e38]: 关键词
+          - textbox "关键词" [ref=f2e39]:
+            - /placeholder: 编号、异常、历史根因、生产批或客户批
+        - generic [ref=f2e40]:
+          - generic [ref=f2e41]:
+            - generic [ref=f2e42]: 产品
+            - combobox "产品" [ref=f2e43]:
+              - option "全部产品" [selected]
+              - option "SYN_PWR_A · PROD_001"
+              - option "SYN_PWR_B · PROD_002"
+              - option "SYN_ANA_A · PROD_003"
+              - option "SYN_ANA_B · PROD_004"
+              - option "SYN_MCU_A · PROD_005"
+              - option "SYN_MCU_B · PROD_006"
+              - option "SYN_MEM_A · PROD_007"
+              - option "SYN_MEM_B · PROD_008"
+              - option "SYN_RF_A · PROD_009"
+              - option "SYN_RF_B · PROD_010"
+              - option "SYN_DIG_A · PROD_011"
+              - option "SYN_DIG_B · PROD_012"
+              - option "SYN_SEN_A · PROD_013"
+              - option "SYN_SEN_B · PROD_014"
+              - option "SYN_ANA_C · PROD_015"
+              - option "SYN_MEM_C · PROD_016"
+              - option "SYN_DIG_C · PROD_017"
+              - option "SYN_RF_C · PROD_018"
+          - generic [ref=f2e44]:
+            - generic [ref=f2e45]: 客户
+            - combobox "客户" [ref=f2e46]:
+              - option "全部客户" [selected]
+              - option "SYN_AX · CUS_001"
+              - option "SYN_BQ · CUS_002"
+              - option "SYN_CV · CUS_003"
+              - option "SYN_DK · CUS_004"
+              - option "SYN_EZ · CUS_005"
+          - generic [ref=f2e47]:
+            - generic [ref=f2e48]: 已确认异常站点
+            - combobox "已确认异常站点" [ref=f2e49]:
+              - option "全部站点" [selected]
+              - option "Wafer Backgrinding · P001"
+              - option "Wafer Saw · P002"
+              - option "Die Attach · P003"
+              - option "Wire Bond · P004"
+              - option "Flip Chip Attach · P005"
+              - option "Underfill · P006"
+              - option "Molding · P007"
+              - option "Post Mold Cure · P008"
+              - option "Ball Attach · P009"
+              - option "Singulation · P010"
+              - option "Electrical Test · P011"
+              - option "SMT · P012"
+              - option "Storage & Transportation · P013"
+              - option "Material Income · P014"
+              - option "Wafer Income · P015"
+          - generic [ref=f2e50]:
+            - generic [ref=f2e51]: 发现阶段
+            - combobox "发现阶段" [ref=f2e52]:
+              - option "全部阶段" [selected]
+              - option "IQC"
+              - option "In-process"
+              - option "OQC"
+              - option "Customer"
+              - option "Other"
+        - generic [ref=f2e53]:
+          - button "筛选案例" [ref=f2e54] [cursor=pointer]
+          - button "清空筛选" [ref=f2e55] [cursor=pointer]
+      - status [ref=f2e56]: 点击案例编号查看详情，或点击“编辑整案”直接修改。浏览和编辑无需模型密钥。
+      - generic [ref=f2e57]:
+        - paragraph [ref=f2e58]: 整库 9 案 · 筛选匹配 9 案 · 本页 9 案
+        - table [ref=f2e60]:
+          - rowgroup [ref=f2e61]:
+            - row [ref=f2e62]:
+              - columnheader "编号 / 异常摘要" [ref=f2e63]
+              - columnheader "产品 / 客户" [ref=f2e64]
+              - columnheader "已确认异常站点" [ref=f2e65]
+              - columnheader "发现日期范围" [ref=f2e66]
+              - columnheader "子记录" [ref=f2e67]
+          - rowgroup [ref=f2e68]:
+            - row [ref=f2e69]:
+              - cell [ref=f2e70]:
+                - button "C001" [ref=f2e71] [cursor=pointer]
+                - paragraph [ref=f2e72]: OQC 拉力检查发现焊线脱落，焊点从 die pad 界面剥离，表现为 wire bond lift。
+                - button "编辑整案 C001" [ref=f2e73] [cursor=pointer]: 编辑整案
+              - cell "SYN_PWR_A (PROD_001) SYN_AX (CUS_001)" [ref=f2e74]
+              - cell "Wire Bond (P004)" [ref=f2e75]
+              - cell "2026-06-03 ～ 2026-06-03" [ref=f2e76]
+              - cell "1 条明细 1 项证据" [ref=f2e77]
+            - row [ref=f2e78]:
+              - cell [ref=f2e79]:
+                - button "C002" [ref=f2e80] [cursor=pointer]
+                - paragraph [ref=f2e81]: 客户反馈引脚润湿不良，焊料未充分铺展；异常位置位于外部引脚表面。
+                - button "编辑整案 C002" [ref=f2e82] [cursor=pointer]: 编辑整案
+              - cell "SYN_PWR_A (PROD_001) SYN_AX (CUS_001)" [ref=f2e83]
+              - cell "Storage & Transportation (P013)" [ref=f2e84]
+              - cell "2026-06-12 ～ 2026-06-12" [ref=f2e85]
+              - cell "1 条明细 1 项证据" [ref=f2e86]
+            - row [ref=f2e87]:
+              - cell [ref=f2e88]:
+                - button "C003" [ref=f2e89] [cursor=pointer]
+                - paragraph [ref=f2e90]: 在线拉力测试出现焊点剥离，焊线从 pad 脱落；异常位于第一焊点界面。
+                - button "编辑整案 C003" [ref=f2e91] [cursor=pointer]: 编辑整案
+              - cell "SYN_ANA_A (PROD_003) SYN_BQ (CUS_002)" [ref=f2e92]
+              - cell "Wire Bond (P004)" [ref=f2e93]
+              - cell "2026-06-05 ～ 2026-06-05" [ref=f2e94]
+              - cell "1 条明细 1 项证据" [ref=f2e95]
+            - row [ref=f2e96]:
+              - cell [ref=f2e97]:
+                - button "C004" [ref=f2e98] [cursor=pointer]
+                - paragraph [ref=f2e99]: OQC 拉力测试发现焊线断裂；断点集中在第二焊点颈部，pad 界面保持完整。
+                - button "编辑整案 C004" [ref=f2e100] [cursor=pointer]: 编辑整案
+              - cell "SYN_PWR_B (PROD_002) SYN_AX (CUS_001)" [ref=f2e101]
+              - cell "Wire Bond (P004)" [ref=f2e102]
+              - cell "2026-06-07 ～ 2026-06-07" [ref=f2e103]
+              - cell "1 条明细 1 项证据" [ref=f2e104]
+            - row [ref=f2e105]:
+              - cell [ref=f2e106]:
+                - button "C005" [ref=f2e107] [cursor=pointer]
+                - paragraph [ref=f2e108]: OQC 声学扫描发现塑封空洞 molding void，空洞集中在封装边缘区域。
+                - button "编辑整案 C005" [ref=f2e109] [cursor=pointer]: 编辑整案
+              - cell "SYN_MCU_A (PROD_005) SYN_AX (CUS_001)" [ref=f2e110]
+              - cell "Molding (P007)" [ref=f2e111]
+              - cell "2026-06-09 ～ 2026-06-09" [ref=f2e112]
+              - cell "1 条明细 1 项证据" [ref=f2e113]
+            - row [ref=f2e114]:
+              - cell [ref=f2e115]:
+                - button "C006" [ref=f2e116] [cursor=pointer]
+                - paragraph [ref=f2e117]: 客户收货后发现 BGA 锡球缺失，缺球位置靠近托盘边缘，邻近锡球有机械碰伤。
+                - button "编辑整案 C006" [ref=f2e118] [cursor=pointer]: 编辑整案
+              - cell "SYN_MCU_B (PROD_006) SYN_DK (CUS_004)" [ref=f2e119]
+              - cell "Storage & Transportation (P013)" [ref=f2e120]
+              - cell "2026-06-15 ～ 2026-06-15" [ref=f2e121]
+              - cell "1 条明细 1 项证据" [ref=f2e122]
+            - row [ref=f2e123]:
+              - cell [ref=f2e124]:
+                - button "C007" [ref=f2e125] [cursor=pointer]
+                - paragraph [ref=f2e126]: OQC 拉力试验发现键合金球从器件焊盘表面分离，分离面位于键合界面；异常出现于基板载体的混合信号器件。
+                - button "编辑整案 C007" [ref=f2e127] [cursor=pointer]: 编辑整案
+              - cell "SYN_ANA_C (PROD_015) SYN_EZ (CUS_005)" [ref=f2e128]
+              - cell "Wire Bond (P004)" [ref=f2e129]
+              - cell "2026-07-06 ～ 2026-07-06" [ref=f2e130]
+              - cell "1 条明细 1 项证据" [ref=f2e131]
+            - row [ref=f2e132]:
+              - cell [ref=f2e133]:
+                - button "C008" [ref=f2e134] [cursor=pointer]
+                - paragraph [ref=f2e135]: OQC 声学扫描发现部分器件内部存在塑封空洞，空洞集中在塑封体靠近基板边缘的区域。
+                - button "编辑整案 C008" [ref=f2e136] [cursor=pointer]: 编辑整案
+              - cell "SYN_RF_A (PROD_009) SYN_CV (CUS_003)" [ref=f2e137]
+              - cell "Molding (P007)" [ref=f2e138]
+              - cell "2026-07-11 ～ 2026-07-11" [ref=f2e139]
+              - cell "1 条明细 1 项证据" [ref=f2e140]
+            - row [ref=f2e141]:
+              - cell [ref=f2e142]:
+                - button "C009" [ref=f2e143] [cursor=pointer]
+                - paragraph [ref=f2e144]: FT 电性测试后发现部分器件锡球表面出现压痕与局部变形，压痕位置集中在锡球顶面。
+                - button "编辑整案 C009" [ref=f2e145] [cursor=pointer]: 编辑整案
+              - cell "SYN_DIG_A (PROD_011) SYN_EZ (CUS_005)" [ref=f2e146]
+              - cell "Electrical Test (P011)" [ref=f2e147]
+              - cell "2026-07-18 ～ 2026-07-18" [ref=f2e148]
+              - cell "1 条明细 1 项证据" [ref=f2e149]
+        - generic [ref=f2e150]:
+          - button "上一页" [disabled] [ref=f2e151]
+          - generic [ref=f2e152]: 第 1 / 1 页
+          - button "下一页" [disabled] [ref=f2e153]
+          - generic [ref=f2e154]: 每页条数
+          - combobox "每页条数" [ref=f2e155]:
+            - option "10"
+            - option "20" [selected]
+            - option "50"
+            - option "100"
+    - region [ref=f2e156]:
+      - heading "恢复完整演示资料" [level=2] [ref=f2e157]
+      - paragraph [ref=f2e158]: 可重新载入九案完整合成演示库，保留原有分组、来源及完整可用日期。
+      - button "载入完整演示数据" [ref=f2e159] [cursor=pointer]
+      - status [ref=f2e160]
+    - region [ref=f2e161]:
+      - heading "1. 下载并填写唯一 CSV 模板" [level=2] [ref=f2e162]
+      - generic [ref=f2e163]:
+        - link "下载空白模板" [ref=f2e164] [cursor=pointer]:
+          - /url: /dataset/template
+        - link "下载上传格式示例（1 案、2 明细、3 证据）" [ref=f2e165] [cursor=pointer]:
+          - /url: /dataset/example
+      - paragraph [ref=f2e166]:
+        - text: 上传格式示例包含 1 个 Case、2 条 Detail、3 个调查项目，全部为合成资料。演示可用日期填写
+        - strong [ref=f2e167]: 2026-09-15
+        - text: ，依据写明这是人工设定的合成快照。
+      - paragraph [ref=f2e168]: UTF-8 编码（可带 BOM），日期为 YYYY-MM-DD；多值以分号分隔，ID 按文本填写以保留前导零。文件最多 5 MiB、500 个 Case、10000 条记录。列名必须与模板一致；可调整列顺序。
+      - group [ref=f2e169]:
+        - generic "必填列与记录关系" [ref=f2e170] [cursor=pointer]
+      - group [ref=f2e171]:
+        - generic "查看合法主数据、路线对应关系与枚举" [ref=f2e172] [cursor=pointer]
+    - region [ref=f2e173]:
+      - heading "2. 上传并整体替换" [level=2] [ref=f2e174]
+      - generic [ref=f2e175]:
+        - generic [ref=f2e176]:
+          - generic [ref=f2e177]: 数据集名称
+          - textbox "数据集名称" [ref=f2e178]:
+            - /placeholder: 例如：封装调查合成演示
+        - generic [ref=f2e179]:
+          - generic [ref=f2e180]: 整份资料完整可用日期
+          - textbox "整份资料完整可用日期" [ref=f2e181]
+          - paragraph [ref=f2e182]: 所有 Case 须在该日期前已结案、全部内容已可用。搜索使用这一登记时点；发现日期不能代替结案日期。
+        - generic [ref=f2e183]:
+          - generic [ref=f2e184]: 可用性依据
+          - textbox "可用性依据" [ref=f2e185]:
+            - /placeholder: 填写结案记录／报告版本和日期依据；合成资料明确写出人为设定的快照约定。
+        - generic [ref=f2e186]:
+          - generic [ref=f2e187]: 填写完成的 CSV
+          - button "填写完成的 CSV" [ref=f2e188]
+        - generic [ref=f2e189]:
+          - checkbox "我确认整份资料在所填日期前已结案且完整可用，来源已逐条具体填写。" [ref=f2e190]
+          - text: 我确认整份资料在所填日期前已结案且完整可用，来源已逐条具体填写。
+        - button "校验并整体替换当前数据集" [ref=f2e192] [cursor=pointer]
+      - status [ref=f2e193]: 尚未上传。
+      - list
+  - contentinfo [ref=f2e194]:
+    - paragraph [ref=f2e195]: 来源可定位不代表结论已获语义验证。上传或恢复会整体替换当前案例资料，不继承旧评估结论。

@@ -192,3 +192,11 @@ CASETRACE_CHROME_BINARY=/usr/bin/chromium node scripts/web_demo_browser_check.mj
 如果浏览器曾加载旧版，先打开一次 `http://127.0.0.1:8000/?refresh_ui=1`（自定义端口相应替换）。该入口通过 `Clear-Site-Data: "cache"` 请求清除此站点 HTTP 缓存，不清 cookies、storage、案例或实例设置。然后正常使用首页、设置和案例资料库；不需要反复添加诊断参数。已经打开的旧标签页仍须重新载入。
 
 缓存控制依据：[HTTP 缓存](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Caching)、[Clear-Site-Data](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Clear-Site-Data)。Chromium 的缓存升级专项已实际验证本机 HTTP 回环地址；其他浏览器尚未实测，不声称全部平台完成验收。
+
+## 前端调查工作区（2026-11 UX 改造）
+
+页面使用本地 Tabler Core 1.4.0 CSS，不需要 Node 构建或 CDN。搜索完成后优先展示候选摘要，可选择 2–3 案比较历史原因、措施和证据；来源按钮直接定位本次运行上下文的字段。
+
+资料库分“案例浏览 / 资料管理”，模板、上传、恢复与主数据在后者。筛选条件、页码、每页条数、案例及资料版本可随 URL 恢复；旧版本链接会提示重新核对。本页排序只改变当前页展示，不提供全库排序，也不改变检索排名。
+
+Playwright MCP 专项：先按审查记录启动只读 `docs/reviews/ux-audit-2026-11-07/serve_audit.py`，通过 `browser_run_code_unsafe` 的 `filename` 参数执行 `scripts/web_ux_playwright_check.js`。此入口使用九案合成数据与固定回答回放，不调用真实模型，不验证数据库写入。改造与截图见 [验证记录](../reviews/frontend-redesign-2026-11-07/verification.md)。

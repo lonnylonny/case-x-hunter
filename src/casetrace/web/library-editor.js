@@ -31,6 +31,10 @@ function editControl(parent, key, label, value, options = {}) {
   }
   input.required = !options.optional;
   wrap.append(heading, input);
+  if (options.multiple) {
+    const help = element('p', '可多选：按住 Ctrl（Mac 为 ⌘）点击；键盘可用 Shift + 方向键连续选择。');
+    help.className = 'hint'; help.id = `${input.id}-help`; input.setAttribute('aria-describedby', help.id); wrap.append(help);
+  }
   parent.append(wrap);
   return input;
 }
@@ -146,6 +150,7 @@ function editorChrome(legendText, messageText, onCancel) {
   const buttons = element('div'); buttons.className = 'actions'; buttons.append(save, cancel);
   actions.append(buttons, message);
   form.append(actions, fields, errors);
+  const nav = element('nav'); nav.className = 'edit-nav'; nav.setAttribute('aria-label', '编辑分区'); actions.append(nav);
   return {form, fields, message, errors};
 }
 
@@ -201,6 +206,12 @@ function startEditing() {
   const availability = availabilitySection(fields);
   chrome.form.addEventListener('submit', saveEditing);
   editor.append(chrome.form);
+  for (const [index, target] of Array.from(fields.children).filter(child => child.matches('fieldset, section')).entries()) {
+    target.id = `edit-section-${index}`;
+    const link = element('a', target.querySelector('legend, h3')?.textContent || '记录'); link.href = `#${target.id}`;
+    link.addEventListener('click', event => { event.preventDefault(); CaseUI.focus(target); });
+    chrome.form.querySelector('.edit-nav').append(link);
+  }
   editSession.collect = () => {
     editSession.paths.clear();
     const body = {expected_snapshot_id: editSession.expected, case: basic.collect('case'), closure_status: closure.value};
@@ -211,7 +222,8 @@ function startEditing() {
   };
   editSession.initial = JSON.stringify(editSession.collect());
   updateDatasetButtons(); status(`正在编辑 ${editSession.caseId}，尚未保存。`);
-  editor.scrollIntoView({block: 'start'});
+  CaseUI.enhance(editor);
+  CaseUI.focus(editor);
 }
 
 function startCreating() {
@@ -241,6 +253,12 @@ function startCreating() {
   const availability = availabilitySection(fields);
   chrome.form.addEventListener('submit', saveEditing);
   editor.append(chrome.form);
+  for (const [index, target] of Array.from(fields.children).filter(child => child.matches('fieldset, section')).entries()) {
+    target.id = `edit-section-${index}`;
+    const link = element('a', target.querySelector('legend, h3')?.textContent || '记录'); link.href = `#${target.id}`;
+    link.addEventListener('click', event => { event.preventDefault(); CaseUI.focus(target); });
+    chrome.form.querySelector('.edit-nav').append(link);
+  }
   editSession.collect = () => {
     editSession.paths.clear();
     const body = {expected_snapshot_id: editSession.expected, case: basic.collect('case'), closure_status: closure.value};
@@ -251,7 +269,8 @@ function startCreating() {
   };
   editSession.initial = JSON.stringify(editSession.collect());
   updateDatasetButtons(); status('正在新增案例，尚未保存。');
-  editor.scrollIntoView({block: 'start'});
+  CaseUI.enhance(editor);
+  CaseUI.focus(editor);
 }
 
 function editIsDirty() {

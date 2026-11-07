@@ -1,0 +1,32 @@
+- generic [active] [ref=f4e1]:
+  - banner [ref=f4e2]:
+    - heading "设置" [level=1] [ref=f4e3]
+    - navigation "页面导航" [ref=f4e4]:
+      - link "搜索历史案例" [ref=f4e5] [cursor=pointer]:
+        - /url: /?ui=b6e210fd82473e00
+      - link "案例资料库" [ref=f4e6] [cursor=pointer]:
+        - /url: /library?ui=b6e210fd82473e00
+      - link "设置" [ref=f4e7] [cursor=pointer]:
+        - /url: /settings?ui=b6e210fd82473e00
+    - paragraph [ref=f4e8]: 模型与检索参数保存后对下一次请求生效。浏览、导入及恢复资料请前往案例资料库。
+  - main [ref=f4e9]:
+    - region [ref=f4e10]:
+      - heading "模型与检索" [level=2] [ref=f4e11]
+      - paragraph [ref=f4e12]: DeepSeek · deepseek-flash · 非思考模式 · JSON 输出 · 温度 0（固定）
+      - status [ref=f4e13]: 密钥已配置（未验证连接）。
+      - paragraph [ref=f4e14]: 密钥仅在本机 .env 管理，网页不接收密钥。修改密钥后，Docker 用户须重新创建 API 容器；Python 开发入口须重启进程。已配置不代表密钥有效或调用成功。
+      - group "实例设置" [ref=f4e16]:
+        - generic [ref=f4e18]:
+          - generic [ref=f4e19]: 回答输出上限（tokens）
+          - combobox "回答输出上限（tokens）" [ref=f4e20]:
+            - option "2048"
+            - option "4096（默认）" [selected]
+          - paragraph [ref=f4e21]: 较小上限可能截断 JSON 回答；截断会报告失败，不会自动重试。此项不限制输入长度，也不保证回答质量。
+        - group [ref=f4e22]:
+          - generic "高级检索选项" [ref=f4e23] [cursor=pointer]
+        - button "保存设置" [ref=f4e24] [cursor=pointer]
+      - status [ref=f4e25]: 已保存：Top K 4，输出上限 4096 tokens。下一次请求生效。
+      - button "重新读取已保存设置" [ref=f4e26] [cursor=pointer]
+      - paragraph [ref=f4e27]: 非密钥设置保存于当前实例，刷新和重启后保留。保存后下一次网页/API 请求生效，无需重启；进行中的回答保持原配置。CLI 实验参数独立。
+  - contentinfo [ref=f4e28]:
+    - paragraph [ref=f4e29]: 配置状态不代表服务可用或回答质量已经验证。

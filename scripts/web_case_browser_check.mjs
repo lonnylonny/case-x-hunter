@@ -266,7 +266,7 @@ try {
   held.clear();
   const first = pendingReads.shift(); json(first.res, first.data, first.status);
   await waitUntil('!browsing && referenceData !== null');
-  await check('overview, navigation and collapsed identity', 'currentDataset.case_count === 21 && counts.textContent.includes("筛选匹配 21") && !document.getElementById("dataset-technical").open && document.querySelectorAll("nav a").length === 3');
+  await check('overview, navigation and collapsed identity', 'currentDataset.case_count === 21 && counts.textContent.includes("筛选匹配 21") && !document.getElementById("dataset-technical").open && document.querySelectorAll(".page-header nav a").length === 3');
   await check('dynamic text is safe and summary keeps full data', '!window.__injected && !document.querySelector("#case-list img") && caseList.textContent.includes("<img")');
   await evaluate('pageSize.value="10"; pageSize.dispatchEvent(new Event("change"))');
   await waitUntil('!browsing');
@@ -274,6 +274,11 @@ try {
   await shot('list-desktop.png', '#browser-heading');
   await evaluate('nextPage.click()'); await waitUntil('!browsing');
   await check('next page is stable', 'page === 2 && listData.items[0].case_id === "C011"');
+  await check('pagination is represented in the URL', 'new URLSearchParams(location.search).get("page") === "2" && new URLSearchParams(location.search).get("page_size") === "10"');
+  await evaluate('window.__beforeReload = true');
+  await send('Page.reload');
+  await waitUntil('!window.__beforeReload && typeof page !== "undefined" && typeof listData !== "undefined" && listData?.page === 2 && !browsing');
+  await check('reload restores pagination and page size', 'page === 2 && pageSize.value === "10" && listData.items[0].case_id === "C011"');
   await evaluate('previousPage.click()'); await waitUntil('!browsing');
   await applyFilters('document.getElementById("filter-product").value="P1"; document.getElementById("filter-stage").value="Customer"');
   await check('different details cannot satisfy one filter combination', 'listData.matched_count === 0 && browserStatus.textContent.includes("筛选无结果")');
