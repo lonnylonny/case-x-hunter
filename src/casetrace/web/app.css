@@ -19,6 +19,43 @@
   box-sizing: border-box;
 }
 
+[hidden] { display: none !important; }
+
+.library-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  margin-top: 1rem;
+  font-size: 0.9rem;
+}
+.library-table th, .library-table td {
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+  padding: 0.75rem 0.5rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.library-table th:first-child { width: 30%; }
+.library-table thead { background: #f0f4f8; }
+.case-summary {
+  margin: 0.5rem 0 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+#pagination { align-items: center; }
+#page-size { width: auto; }
+#dataset-details dd, #dataset-identities dd { white-space: pre-wrap; }
+@media (max-width: 600px) {
+  .library-table thead { display: none; }
+  .library-table, .library-table tbody, .library-table tr, .library-table td { display: block; width: 100%; }
+  .library-table tr { border: 1px solid var(--border); border-radius: 6px; margin: 0.75rem 0; }
+  .library-table td { border: 0; padding: 0.4rem 0.6rem; }
+  .library-table td::before { content: attr(data-label); display: block; color: var(--muted); font-size: 0.8rem; }
+}
+
 body {
   margin: 0;
   padding: 0 1rem 3rem;
@@ -546,6 +583,27 @@ summary {
 #dataset-details dd { margin: 0; overflow-wrap: anywhere; }
 #upload-errors { overflow-wrap: anywhere; }
 nav [aria-current="page"] { font-weight: 700; }
+.edit-record { min-width: 0; border: 1px solid var(--border); border-radius: 6px; padding: 1rem; }
+.edit-record legend { font-weight: 600; overflow-wrap: anywhere; max-width: 100%; }
+#case-editor fieldset { min-width: 0; }
+#case-editor select[multiple] { min-height: 6rem; }
+.edit-actions {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 0.65rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: 0 3px 10px #1c233014;
+}
+.edit-actions .actions { margin: 0; }
+.edit-actions .status { margin: 0.4rem 0 0; padding: 0.4rem 0.6rem; }
+#case-editor .field { scroll-margin-top: 10rem; }
+#edit-errors { overflow-wrap: anywhere; color: var(--error); }
+[aria-invalid="true"] { border-color: var(--error); outline-color: var(--error); }
+.error-link { background: transparent; color: var(--error); text-align: left; border: 0; padding: 0; text-decoration: underline; }
 
 .context-case {
   margin: 0.5rem 0 0.25rem;

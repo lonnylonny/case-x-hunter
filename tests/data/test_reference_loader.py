@@ -7,6 +7,7 @@ from casetrace.data.reference import load_reference
 def test_reads_maps_and_preserves_leading_zeros(reference_path):
     reference = load_reference(reference_path)
     assert reference.product_customers == {"P1": "CUS1"}
+    assert reference.customer_names == {"CUS1": "演示客户"}
     assert reference.product_families == {"PF1": "演示产品族"}
     assert reference.products["P1"]["product_family_id"] == "PF1"
     assert reference.validator_maps()["failure_mode_routes"] == {"00001": {"LF_WB"}}

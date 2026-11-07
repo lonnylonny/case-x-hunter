@@ -20,7 +20,7 @@ def reference_path(tmp_path):
             ("00001", "wire lift", "LF_WB", "表面污染; 参数异常", "改善清洁; 优化参数"),
         ],
         "customer_product_map": [("product_id", "customer_id"), ("P1", "CUS1")],
-        "customers": [("customer_id",), ("CUS1",)],
+        "customers": [("customer_id", "customer_name"), ("CUS1", "演示客户")],
         "package_routes": [("package_route",), ("LF_WB",)],
         "process_master": [
             ("process_id", "process"), ("P004", "Wire Bond"), ("P007", "Molding"),

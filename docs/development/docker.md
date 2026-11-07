@@ -85,7 +85,19 @@ Windows 重启使用同一个 `./scripts/start-demo.ps1`，停止命令相同。
 docker compose run --rm --no-deps api casetrace answer --data-source postgres --query-id Q005 --check-only
 ```
 
-浏览器打开输出的地址，页面内容和静态资源随同一镜像托管。当前网页提交调用模型；未配置密钥时可通过上述 CLI 检查证据，网页检索属于任务 02。上传后重启的端到端验收等待任务 03；本阶段准备逻辑已支持保留有效的非示例快照，但不提前扩展回答核心支持的快照范围。
+浏览器打开输出的地址，页面内容和静态资源随同一镜像托管。未配置模型密钥时，搜索、浏览、编辑、新增、删除、上传与恢复都可正常使用；“生成调查参考”才需要密钥。资料接口会原子替换当前案例与来源、修订记录，失败保留原数据；`prepare` 已有有效快照时只核对并返回 `preserved`，零案快照也不会被回填九案。
+
+### 更新已在运行的 API
+
+只更新应用镜像与 API 容器，不重建数据库、不重置卷：
+
+```bash
+docker compose build api
+docker compose up -d --no-deps --force-recreate --wait api
+docker compose ps api
+```
+
+`--no-deps` 跳过 `prepare` 依赖，数据库与已有资料保持不变；`--force-recreate` 让新镜像与注入的环境变量生效。更新后核对 `/health`、`GET /dataset` 与三个页面导航。若浏览器仍显示旧页面，先打开一次 `http://127.0.0.1:8000/?refresh_ui=1` 清除该站点 HTTP 缓存。若新容器无法健康启动，回退到更新前的镜像并按同一命令重建 API；不要通过删卷或重跑初始化来“修复”。
 
 ## 失败怎么定位
 

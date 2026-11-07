@@ -47,7 +47,7 @@ def upload_client(storage_connection, scratch_schema, monkeypatch):
 def upload_example(client, raw=None, **params):
     if raw is None:
         raw = client.get('/dataset/example').content
-    return client.post('/dataset', params={**PARAMS, **params}, content=raw,
+    return client.post('/dataset', params={**PARAMS, 'expected_snapshot_id': client.get('/dataset').json()['snapshot_id'], **params}, content=raw,
                        headers={'Content-Type': 'text/csv'})
 
 

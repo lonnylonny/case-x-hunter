@@ -44,7 +44,7 @@ def test_query_date_must_match_current_dataset(monkeypatch, loaded_snapshot, rou
 ])
 def test_upload_rejects_invalid_metadata_without_database(params):
     base = dict(dataset_name='测试', basis='人工声明整份资料在指定日期前完整可用。',
-                filename='example.csv', known_at='2026-10-20')
+                filename='example.csv', known_at='2026-10-20', expected_snapshot_id='current')
     if params == {}:
         base.pop('basis')
     response = TestClient(create_app()).post('/dataset', params={**base, **params}, content=b'')
@@ -54,6 +54,53 @@ def test_upload_rejects_invalid_metadata_without_database(params):
 def test_upload_limits_body_before_database_access():
     response = TestClient(create_app()).post('/dataset', params={
         'dataset_name': '测试', 'basis': '人工声明整份资料完整可用。',
-        'filename': 'large.csv', 'known_at': '2026-10-20',
+        'filename': 'large.csv', 'known_at': '2026-10-20', 'expected_snapshot_id': 'old',
     }, content=b'x' * (5 * 1024 * 1024 + 1))
     assert response.status_code == 413
+
+
+@pytest.mark.parametrize('body', [{}, {'expected_snapshot_id': ' '},
+                                  {'expected_snapshot_id': 'old', 'path': '/tmp/x'}])
+def test_restore_requires_explicit_snapshot_without_database(body):
+    response = TestClient(create_app()).post('/dataset/restore-demo', json=body)
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize('exception,status', [
+    (api.SnapshotConflictError('old'), 409),
+    (api.DemoValidationError('C001 的来源候选不在主数据中'), 422),
+    (RuntimeError('internal secret'), 503),
+])
+def test_restore_maps_failures_without_exposing_service_details(monkeypatch, exception, status):
+    from contextlib import nullcontext
+    monkeypatch.setattr(api, 'connect', lambda: nullcontext(None))
+
+    def fail(*args, **kwargs):
+        raise exception
+
+    monkeypatch.setattr(api, 'restore_demo_snapshot', fail)
+    response = TestClient(create_app()).post('/dataset/restore-demo', json={
+        'expected_snapshot_id': 'old',
+    })
+    assert response.status_code == status
+    if status == 422:
+        assert 'C001' in response.json()['message']
+    assert 'internal secret' not in response.text
+
+
+def test_csv_requires_current_snapshot_and_maps_conflict(monkeypatch):
+    from contextlib import nullcontext
+    client = TestClient(create_app())
+    params = {'dataset_name': '版本检查', 'basis': '合成测试整库声明',
+              'filename': 'test.csv', 'known_at': '2026-09-15'}
+    assert client.post('/dataset', params=params, content=b'').status_code == 422
+    monkeypatch.setattr(api, 'connect', lambda: nullcontext(None))
+
+    def conflict(*args, **kwargs):
+        assert kwargs['expected_snapshot_id'] == 'old'
+        raise api.SnapshotConflictError('stale')
+
+    monkeypatch.setattr(api, 'replace_csv_snapshot', conflict)
+    response = client.post('/dataset', params={**params, 'expected_snapshot_id': 'old'}, content=b'')
+    assert response.status_code == 409
+    assert response.json()['status'] == 'snapshot_conflict'

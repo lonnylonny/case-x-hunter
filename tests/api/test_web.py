@@ -63,13 +63,21 @@ def test_index_survives_working_directory_change(client, monkeypatch, tmp_path):
 
 
 def test_settings_and_upload_assets_are_available_without_dependencies(client):
-    response = client.get('/settings')
+    response = client.get('/library')
     assert response.status_code == 200
     assert 'id="upload-form"' in response.text
     assert '/dataset/template' in response.text
     assert '/dataset/example' in response.text
     assert 'source_document_id' in response.text
     assert client.get('/static/settings.js').status_code == 200
+    assert client.get('/static/library.js').status_code == 200
+    settings = client.get('/settings').text
+    assert 'id="settings-form"' in settings and 'id="upload-form"' not in settings
+    for route in ('/', '/library', '/settings'):
+        page = client.get(route).text
+        from urllib.parse import urlsplit
+        paths = {urlsplit(url).path for kind, url in page_links(page) if kind == 'page'}
+        assert {'/', '/library', '/settings'} <= paths
 
 
 def test_index_has_input_contract_and_defaults(client):
@@ -179,7 +187,7 @@ def test_rendering_never_treats_text_as_html(client, script):
     assert "textContent" in script
     # 页面不内联脚本或事件属性，避免绕过统一渲染。
     page = client.get("/").text
-    assert "<script" in page and "src=\"/static/app.js\"" in page
+    assert '<script' in page and any(url.startswith('/static/app.js?ui=') for kind, url in page_links(page) if kind == 'asset')
     assert "onclick=" not in page
     assert "onerror=" not in page
 
@@ -199,3 +207,55 @@ def test_no_persistence_or_automatic_retry(script):
     # 不自动重试模型请求：没有轮询或延时重发。
     assert "setInterval" not in script
     assert "retry" not in script.lower()
+
+
+@pytest.mark.parametrize('route', [
+    '/', '/settings', '/library', '/static/app.css', '/static/app.js',
+    '/static/library.js', '/static/library-editor.js', '/static/settings.js',
+])
+def test_pages_and_assets_require_cache_revalidation(client, route):
+    response = client.get(route)
+    assert response.status_code == 200
+    assert response.headers.get('cache-control') == 'no-cache'
+    if response.headers.get('etag'):
+        conditional = client.get(route, headers={'If-None-Match': response.headers['etag']})
+        assert conditional.headers.get('cache-control') == 'no-cache'
+
+
+def page_links(text):
+    from html.parser import HTMLParser
+    class Links(HTMLParser):
+        urls = None
+        def handle_starttag(self, tag, attrs):
+            values = dict(attrs)
+            if tag == 'a' and 'href' in values:
+                self.urls.append(('page', values['href']))
+            elif tag in ('script', 'link'):
+                url = values.get('src') or values.get('href')
+                if url:
+                    self.urls.append(('asset', url))
+    parser = Links()
+    parser.urls = []
+    parser.feed(text)
+    return parser.urls
+
+
+@pytest.mark.parametrize('route', ['/', '/settings', '/library'])
+def test_navigation_and_assets_bypass_legacy_unversioned_cache(client, route):
+    from urllib.parse import urlsplit, parse_qs
+    links = [(kind, urlsplit(url)) for kind, url in page_links(client.get(route).text)]
+    navigation = [url for kind, url in links if kind == 'page' and url.path in ('/', '/settings', '/library')]
+    assert {url.path for url in navigation} == {'/', '/settings', '/library'}
+    versions = {parse_qs(url.query).get('ui', [''])[0] for _, url in links
+                if url.path in ('/', '/settings', '/library') or url.path.startswith('/static/')}
+    assert len(versions) == 1 and '' not in versions
+    for _, url in links:
+        assert client.get(url.geturl()).status_code == 200
+
+
+def test_cache_repair_clears_only_cache_when_explicitly_requested(client):
+    assert 'clear-site-data' not in client.get('/').headers
+    response = client.get('/?refresh_ui=1')
+    assert response.headers.get('clear-site-data') == '"cache"'
+    assert 'id="manage-cases"' in response.text
+    assert 'clear-site-data' not in client.get('/health?refresh_ui=1').headers
