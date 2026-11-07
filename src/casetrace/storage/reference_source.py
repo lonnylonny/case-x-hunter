@@ -189,6 +189,7 @@ def build_reference_data(reference_rows: dict, route_order: dict[str, list[str]]
             row["product_family_id"]: row["product_family"]
             for row in reference_rows["product_families"]
         },
+        customer_names={row["customer_id"]: row["customer_name"] for row in reference_rows["customers"]},
     )
 
 

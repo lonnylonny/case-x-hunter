@@ -217,6 +217,13 @@ function present(httpStatus, body, mode) {
   const message = typeof body.message === 'string' ? body.message : '';
   const record = isObject(body.record) ? body.record : null;
 
+  // 空库是业务状态而不是故障：没有运行记录、不构建索引、不调用模型。
+  if (httpStatus === 200 && status === 'empty_dataset') {
+    renderEmptyDataset(message);
+    setStatus('HTTP 200｜status=empty_dataset｜当前资料库为空，未构建检索、未调用模型。', 'warning');
+    return;
+  }
+
   if (mode === 'search' && httpStatus === 200) {
     if (!['retrieved', STATUS_NO_HITS].includes(status) || !hasReadableSearch(record, status)) {
       renderUnreadable('检索记录结构不完整', '服务端未返回可用的候选与证据，本次未得到可用结果。');
@@ -294,6 +301,17 @@ function renderCandidateEvidence(record) {
     section.append(card);
   }
   return section;
+}
+
+function renderEmptyDataset(message) {
+  const section = node('section', 'block');
+  section.append(node('h2', null, '当前资料库为空'));
+  section.append(node('p', 'hint', message || '当前资料库没有案例；检索和回答都不会构建索引或调用模型。'));
+  const link = node('a', 'button', '前往案例资料库新增、导入或恢复资料');
+  link.href = '/library';
+  section.append(link);
+  resultBody.replaceChildren(section);
+  clearDownload();
 }
 
 function renderSearch(record) {
@@ -519,6 +537,9 @@ function renderContextCase(record, caseId) {
   details.append(fieldBlock('Case（历史原文）', renderObject(entry.case)));
   details.append(fieldBlock('Detail（生产与发现事实）', renderObjectList(entry.details)));
   details.append(fieldBlock('Evidence（检查结果）', renderObjectList(entry.evidences)));
+  if (entry.source?.web_provenance) {
+    details.append(fieldBlock('人工修订与来源沿革', renderObject(entry.source.web_provenance)));
+  }
   if (Array.isArray(entry.source?.records)) {
     details.append(fieldBlock('结案状态（来源声明）', entry.source.closure_status));
   }

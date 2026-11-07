@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass
 from datetime import date, datetime
 import hashlib
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, TYPE_CHECKING
 from uuid import uuid4
 
 from psycopg import Connection, sql
@@ -28,6 +28,9 @@ from casetrace.storage.reference_source import TABLE_KEYS, build_reference_data,
 from casetrace.storage.schema import (
     DEFAULT_SCHEMA, SCHEMA_VERSION, check_schema_name, initialize_schema, schema_version,
 )
+
+if TYPE_CHECKING:
+    from casetrace.data.case_editing import CaseEditRequest
 
 SNAPSHOT_METADATA_COLUMNS = (
     "snapshot_id", "known_at", "dataset_path", "dataset_sha256", "reference_path",
@@ -398,9 +401,169 @@ class UploadedSnapshotIdentity:
     basis: str
 
 
+class SnapshotConflictError(ValueError):
+    """预期运行快照已经过期。"""
+
+
+class DemoValidationError(ValueError):
+    """当前主数据不能承载完整演示基线。"""
+
+
+def save_case_snapshot(connection: Connection, *, case_id: str, submission: 'CaseEditRequest',
+                       schema: str = DEFAULT_SCHEMA) -> tuple[LoadedSnapshot, bool]:
+    """版本核对、整案候选校验、修订与读回检查共用同一写事务。"""
+    from casetrace.data.case_editing import prepare_case_edit
+
+    name = check_schema_name(schema)
+    with connection.transaction():
+        if schema_version(connection, schema=name) != SCHEMA_VERSION:
+            raise ValueError('当前实例尚未初始化或结构版本不符')
+        connection.execute(sql.SQL('LOCK TABLE {} IN EXCLUSIVE MODE').format(
+            sql.Identifier(name, 'snapshot_metadata')))
+        current = load_snapshot(connection, schema=name)
+        if current.snapshot.snapshot_id != submission.expected_snapshot_id:
+            raise SnapshotConflictError('当前资料已变化')
+        candidate = prepare_case_edit(current, case_id, submission)
+        if candidate is None:
+            return current, False
+        records, payload, known_at, basis = candidate
+        identity = UploadedSnapshotIdentity(
+            snapshot_id=f'edit-{uuid4().hex}', known_at=known_at, basis=basis,
+            dataset_sha256=current.snapshot.dataset_sha256,
+            reference_sha256=current.snapshot.reference_sha256,
+        )
+        loaded = _replace_entities(connection, name, current, identity,
+                                   Path(current.snapshot.dataset_path), records, payload)
+        return loaded, True
+
+
+def create_case_snapshot(
+    connection: Connection, *, submission: 'CaseEditRequest', schema: str = DEFAULT_SCHEMA,
+) -> tuple[LoadedSnapshot, str]:
+    """版本核对、新案候选校验、初次修订与读回检查共用同一写事务。"""
+    from casetrace.data.case_editing import prepare_case_creation
+
+    name = check_schema_name(schema)
+    with connection.transaction():
+        if schema_version(connection, schema=name) != SCHEMA_VERSION:
+            raise ValueError('当前实例尚未初始化或结构版本不符')
+        connection.execute(sql.SQL('LOCK TABLE {} IN EXCLUSIVE MODE').format(
+            sql.Identifier(name, 'snapshot_metadata')))
+        current = load_snapshot(connection, schema=name)
+        if current.snapshot.snapshot_id != submission.expected_snapshot_id:
+            raise SnapshotConflictError('当前资料已变化')
+        records, payload, known_at, basis, case_id = prepare_case_creation(current, submission)
+        identity = UploadedSnapshotIdentity(
+            snapshot_id=f'create-{uuid4().hex}', known_at=known_at, basis=basis,
+            dataset_sha256=current.snapshot.dataset_sha256,
+            reference_sha256=current.snapshot.reference_sha256,
+        )
+        loaded = _replace_entities(connection, name, current, identity,
+                                   Path(current.snapshot.dataset_path), records, payload)
+        return loaded, case_id
+
+
+def delete_case_snapshot(
+    connection: Connection, *, case_id: str, expected_snapshot_id: str,
+    schema: str = DEFAULT_SCHEMA,
+) -> LoadedSnapshot:
+    """版本核对、删除候选校验、级联清理与读回检查共用同一写事务。"""
+    from casetrace.data.case_editing import prepare_case_deletion
+
+    name = check_schema_name(schema)
+    with connection.transaction():
+        if schema_version(connection, schema=name) != SCHEMA_VERSION:
+            raise ValueError('当前实例尚未初始化或结构版本不符')
+        connection.execute(sql.SQL('LOCK TABLE {} IN EXCLUSIVE MODE').format(
+            sql.Identifier(name, 'snapshot_metadata')))
+        current = load_snapshot(connection, schema=name)
+        if current.snapshot.snapshot_id != expected_snapshot_id:
+            raise SnapshotConflictError('当前资料已变化')
+        records, payload = prepare_case_deletion(current, case_id)
+        identity = UploadedSnapshotIdentity(
+            snapshot_id=f'delete-{uuid4().hex}', known_at=current.snapshot.known_at,
+            basis=current.snapshot.basis,
+            dataset_sha256=current.snapshot.dataset_sha256,
+            reference_sha256=current.snapshot.reference_sha256,
+        )
+        return _replace_entities(connection, name, current, identity,
+                                 Path(current.snapshot.dataset_path), records, payload)
+
+
+def restore_demo_snapshot(
+    connection: Connection, *, expected_snapshot_id: str, schema: str = DEFAULT_SCHEMA,
+) -> LoadedSnapshot:
+    """恢复原始九案，保留当前主数据；版本核对、写入及读回在同一事务。"""
+    # 局部导入避免 answer.context 与存储模块的类型依赖成环。
+    from casetrace.answer.context import DEV_V3_SNAPSHOT
+
+    dataset_path = Path(__file__).resolve().parents[3] / "data/dev/demo-v3.json"
+    name = check_schema_name(schema)
+    with connection.transaction():
+        if schema_version(connection, schema=name) != SCHEMA_VERSION:
+            raise ValueError("当前实例尚未初始化或结构版本不符")
+        connection.execute(sql.SQL("LOCK TABLE {} IN EXCLUSIVE MODE").format(
+            sql.Identifier(name, "snapshot_metadata"),
+        ))
+        current = load_snapshot(connection, schema=name)
+        if current.snapshot.snapshot_id != expected_snapshot_id:
+            raise SnapshotConflictError("当前资料已变化")
+        if file_sha256(dataset_path) != DEV_V3_SNAPSHOT.dataset_sha256:
+            raise RuntimeError("演示基线文件哈希不符")
+        try:
+            records, payload, _ = load_validated_dataset(
+                dataset_path, Path(current.snapshot.reference_path), reference=current.reference,
+            )
+            check_source_records(records, payload, current.reference)
+            if any(item.detection_time > DEV_V3_SNAPSHOT.known_at for item in records["details"]):
+                raise ValueError("演示案例发现日期晚于完整可用日期")
+        except (ValueError, KeyError) as error:
+            raise DemoValidationError(f"演示资料与当前主数据不兼容：{error}") from error
+        payload["dataset_name"] = "完整演示数据（九案）"
+        payload["baseline_snapshot_id"] = DEV_V3_SNAPSHOT.snapshot_id
+        identity = UploadedSnapshotIdentity(
+            snapshot_id=f"demo-restore-{uuid4().hex}", known_at=DEV_V3_SNAPSHOT.known_at,
+            dataset_sha256=DEV_V3_SNAPSHOT.dataset_sha256,
+            reference_sha256=current.snapshot.reference_sha256, basis=DEV_V3_SNAPSHOT.basis,
+        )
+        return _replace_entities(connection, name, current, identity, dataset_path, records, payload)
+
+
+def _replace_entities(
+    connection: Connection, name: str, current: LoadedSnapshot, identity: SnapshotIdentity,
+    dataset_path: Path, records: dict, payload: dict,
+) -> LoadedSnapshot:
+    """调用方持有独占锁和事务；仅替换业务资料，不改主数据或设置。"""
+    reference_rows = {
+        table: _read_rows(connection, name, table, TABLE_KEYS[table])
+        for table in REFERENCE_TABLES
+    }
+    mode_order = _read_metadata(connection, name)["ordering"]["failure_mode_routes"]
+    entities = entity_rows(records)
+    payload = non_entity_payload(payload)
+    content = build_content(
+        snapshot_fields=_snapshot_fields(identity, identity.dataset_sha256,
+                                         identity.reference_sha256, payload),
+        reference=reference_rows, entities=entities, payload=payload,
+        ordering=build_ordering(entities, mode_order),
+    )
+    for table in reversed(ENTITY_TABLES):
+        connection.execute(sql.SQL("DELETE FROM {}").format(sql.Identifier(name, table)))
+    connection.execute(sql.SQL("DELETE FROM {}").format(sql.Identifier(name, "snapshot_metadata")))
+    for table in IMPORT_ORDER:
+        if table in entities and entities[table]:
+            _insert_rows(connection, name, table, entities[table])
+    _insert_snapshot(
+        connection, name, identity, dataset_path, identity.dataset_sha256,
+        Path(current.snapshot.reference_path), identity.reference_sha256,
+        payload, content["ordering"], content_digest(content),
+    )
+    return load_snapshot(connection, schema=name)
+
+
 def replace_csv_snapshot(
     connection: Connection, raw: bytes, *, dataset_name: str, known_at: date,
-    basis: str, filename: str, schema: str = DEFAULT_SCHEMA,
+    basis: str, filename: str, expected_snapshot_id: str, schema: str = DEFAULT_SCHEMA,
 ) -> LoadedSnapshot:
     """校验整份 CSV 后原子替换；主数据保持当前实例内容，失败全部回滚。"""
     name = check_schema_name(schema)
@@ -411,6 +574,8 @@ def replace_csv_snapshot(
             sql.Identifier(name, "snapshot_metadata"),
         ))
         current = load_snapshot(connection, schema=name)
+        if current.snapshot.snapshot_id != expected_snapshot_id:
+            raise SnapshotConflictError('当前资料已变化')
         records, payload = parse_csv(raw, reference=current.reference,
                                      known_at=known_at, filename=filename)
         payload["dataset_name"] = dataset_name
@@ -420,31 +585,9 @@ def replace_csv_snapshot(
             dataset_sha256=hashlib.sha256(raw).hexdigest(),
             reference_sha256=current.snapshot.reference_sha256, basis=basis,
         )
-        reference_rows = {
-            table: _read_rows(connection, name, table, TABLE_KEYS[table])
-            for table in REFERENCE_TABLES
-        }
-        mode_order = _read_metadata(connection, name)["ordering"]["failure_mode_routes"]
-        entities = entity_rows(records)
-        content = build_content(
-            snapshot_fields=_snapshot_fields(identity, identity.dataset_sha256,
-                                             identity.reference_sha256, payload),
-            reference=reference_rows, entities=entities, payload=payload,
-            ordering=build_ordering(entities, mode_order),
+        return _replace_entities(
+            connection, name, current, identity, Path(f"upload:{filename}"), records, payload,
         )
-        # 逆依赖顺序删除业务关系；不用 TRUNCATE，不改原文件或主数据。
-        for table in reversed(ENTITY_TABLES):
-            connection.execute(sql.SQL("DELETE FROM {}").format(sql.Identifier(name, table)))
-        connection.execute(sql.SQL("DELETE FROM {}").format(sql.Identifier(name, "snapshot_metadata")))
-        for table in IMPORT_ORDER:
-            if table in entities and entities[table]:
-                _insert_rows(connection, name, table, entities[table])
-        _insert_snapshot(
-            connection, name, identity, Path(f"upload:{filename}"), identity.dataset_sha256,
-            Path(current.snapshot.reference_path), identity.reference_sha256,
-            payload, content["ordering"], content_digest(content),
-        )
-        return load_snapshot(connection, schema=name)
 
 
 def import_snapshot(

@@ -16,6 +16,7 @@ class ReferenceData:
     # 产品族名称按 product_families 原样读取：产品族只能来自主数据，
     # 不从 package_route 或 CaseGroup 推断（Current Plan §4 的“类似产品”判断依据）。
     product_families: dict[str, str]
+    customer_names: dict[str, str]
 
     def validator_maps(self) -> dict:
         """从同一份主数据构造 Validator 的客户、路线、异常和工序映射。"""
@@ -68,7 +69,7 @@ def load_reference(path: Path) -> ReferenceData:
                             "possible_root_causes", "corrective_actions"))
         assignments = _read_table(workbook, "customer_product_map", "product_id",
                                  ("product_id", "customer_id"))
-        customers = _read_table(workbook, "customers", "customer_id", ("customer_id",))
+        customers = _read_table(workbook, "customers", "customer_id", ("customer_id", "customer_name"))
         routes = _read_table(workbook, "package_routes", "package_route", ("package_route",))
         process_rows = _read_table(workbook, "process_master", "process_id", ("process_id", "process"))
         process_links = _read_table(
@@ -98,7 +99,7 @@ def load_reference(path: Path) -> ReferenceData:
         if not selected:
             raise ValueError(f"路线 {route} 缺少工序映射")
     reference = ReferenceData(products, modes, product_customers, processes, route_processes,
-                              product_families)
+                              product_families, {key: row["customer_name"] for key, row in customers.items()})
     maps = reference.validator_maps()
     used_routes = set(maps["product_routes"].values())
     for applicable in maps["failure_mode_routes"].values():

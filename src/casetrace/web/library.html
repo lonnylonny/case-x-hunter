@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>案例资料库 · Case-X-Hunter</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/library.js" defer></script>
+  <script src="/static/library-editor.js" defer></script>
+</head>
+<body>
+  <header class="page-header">
+    <h1>案例资料库</h1>
+    <nav class="actions" aria-label="页面导航"><a href="/">搜索历史案例</a><a href="/library" aria-current="page">案例资料库</a><a href="/settings">设置</a></nav>
+    <p class="notice">查看当前资料、完整调查及来源，无需模型密钥。历史结论仅供参考，资料仍待人工审阅。</p>
+  </header>
+  <main>
+    <section class="panel" aria-labelledby="dataset-heading">
+      <h2 id="dataset-heading">当前数据集</h2>
+      <p id="dataset-state" role="status">正在读取数据状态…</p>
+      <dl id="dataset-details" class="kv"></dl>
+      <details id="dataset-technical" class="block"><summary>查看资料身份与摘要</summary><dl id="dataset-identities" class="kv"></dl></details>
+      <button id="refresh-dataset" type="button" class="secondary">刷新数据状态</button>
+    </section>
+    <section class="panel" aria-labelledby="browser-heading">
+      <h2 id="browser-heading">浏览案例</h2>
+      <div class="actions"><button id="new-case" type="button" disabled>新增案例</button></div>
+      <p class="hint">新增与编辑共用中文分区表单；保存后立即供新搜索使用，无需模型密钥。</p>
+      <form id="filter-form">
+        <fieldset id="filter-fields" disabled>
+          <legend>筛选当前资料</legend>
+          <div class="field"><label for="filter-keyword">关键词</label><input id="filter-keyword" name="keyword" maxlength="200" placeholder="编号、异常、历史根因、生产批或客户批"></div>
+          <div class="field-row">
+            <div class="field"><label for="filter-product">产品</label><select id="filter-product" name="product_id"><option value="">全部产品</option></select></div>
+            <div class="field"><label for="filter-customer">客户</label><select id="filter-customer" name="customer_id"><option value="">全部客户</option></select></div>
+            <div class="field"><label for="filter-process">已确认异常站点</label><select id="filter-process" name="abnormal_process_id"><option value="">全部站点</option></select></div>
+            <div class="field"><label for="filter-stage">发现阶段</label><select id="filter-stage" name="detection_stage"><option value="">全部阶段</option></select></div>
+          </div>
+          <div class="actions"><button type="submit">筛选案例</button><button id="clear-filters" class="secondary" type="button">清空筛选</button></div>
+        </fieldset>
+      </form>
+      <p id="browser-status" class="status block" role="status" aria-live="polite">正在读取案例资料…</p>
+      <div id="list-view">
+        <p id="case-counts" class="block"></p>
+        <div id="case-list"></div>
+        <div id="pagination" class="actions" hidden>
+          <button id="previous-page" class="secondary" type="button">上一页</button><span id="page-state"></span><button id="next-page" class="secondary" type="button">下一页</button>
+          <label for="page-size">每页条数</label><select id="page-size"><option>10</option><option selected>20</option><option>50</option><option>100</option></select>
+        </div>
+        <button id="first-page" class="secondary" type="button" hidden>回到第一页</button>
+      </div>
+      <div id="detail-view" hidden>
+        <button id="back-to-list" class="secondary" type="button">返回筛选列表</button>
+        <button id="edit-case" type="button">编辑整案</button>
+        <button id="delete-case" class="secondary" type="button" disabled>删除案例</button>
+        <section id="case-delete" class="block" hidden aria-label="删除案例确认"></section>
+        <section id="case-editor" class="block" hidden aria-label="整案编辑"></section>
+        <article id="case-detail-body" class="block" tabindex="-1"></article>
+      </div>
+    </section>
+    <section class="panel" aria-labelledby="restore-heading"><h2 id="restore-heading">恢复完整演示资料</h2>
+      <p>可重新载入九案完整合成演示库，保留原有分组、来源及完整可用日期。</p>
+      <button id="restore-demo" type="button" class="secondary" disabled>载入完整演示数据</button>
+      <p id="restore-status" class="status" role="status" aria-live="polite"></p>
+    </section>
+    <section class="panel" aria-labelledby="template-heading">
+      <h2 id="template-heading">1. 下载并填写唯一 CSV 模板</h2>
+      <div class="actions">
+        <a class="button secondary" href="/dataset/template" download>下载空白模板</a>
+        <a class="button secondary" href="/dataset/example" download>下载上传格式示例（1 案、2 明细、3 证据）</a>
+      </div>
+      <p>上传格式示例包含 1 个 Case、2 条 Detail、3 个调查项目，全部为合成资料。演示可用日期填写 <strong>2026-09-15</strong>，依据写明这是人工设定的合成快照。</p>
+      <p>UTF-8 编码（可带 BOM），日期为 YYYY-MM-DD；多值以分号分隔，ID 按文本填写以保留前导零。文件最多 5 MiB、500 个 Case、10000 条记录。列名必须与模板一致；可调整列顺序。</p>
+      <details>
+        <summary>必填列与记录关系</summary>
+        <p>每行填写 record_type 和 case_id。case 行登记 Case；detail 与 evidence 行通过 case_id 关联已登记的 Case。每案至少一条 Detail 和一个 Evidence；Evidence 只属于 Case，彼此数量无需相同。各类型主键在整份文件中唯一。</p>
+        <div class="table-scroll"><table class="ranking-table">
+          <thead><tr><th>记录类型</th><th>适用字段</th></tr></thead>
+          <tbody>
+            <tr><td>case</td><td>case_id、abnormal_description、root_cause、corrective_action、abnormal_processes、closure_status 必填；investigation_others 可选。closure_status 明确填 confirmed（确认原因）或 NDF（未确认原因），它是来源结案声明，不是资料审阅状态。</td></tr>
+            <tr><td>detail</td><td>case_id、detail_id、product_id、customer_lot、production_lot、production_time、detection_stage、detection_time、abnormal_types、affected_qty、disposition 全部必填。</td></tr>
+            <tr><td>evidence</td><td>case_id、checkpoint_id、checkpoint_type、result、relevance 必填；checkpoint_type 为 Other 时 custom_name 必填。</td></tr>
+            <tr><td>每条记录来源</td><td>source_document_id（报告编号）、source_document_name（完整报告名称）、source_location（具体页码／章节／表格行号／调查项编号）全部必填，不接受“同上”“见报告”等占位。</td></tr>
+          </tbody>
+        </table></div>
+        <p>不属于该记录类型的字段留空。异常工序必须是调查确认的站点，不能用发现阶段或候选知识代填；affected_qty 是处置范围的正整数颗数。批号、路线、异常类型及日期关系按现有业务规则检查。分组不在本次上传范围内。</p>
+        <p>confirmed 案例至少有一项 related Evidence；NDF 仍须填写具体结案结论、措施和已确认异常工序。上传统一登记为待人工审阅（draft），相关标签不会证明证据支持结论或来源真实。资料不足以填写必填事实时，请先补全报告。</p>
+      </details>
+      <details id="reference-details">
+        <summary>查看合法主数据、路线对应关系与枚举</summary>
+        <p id="reference-state" role="status">展开后加载当前实例的主数据。</p>
+        <div id="reference-body"></div>
+      </details>
+    </section>
+    <section class="panel" aria-labelledby="upload-heading">
+      <h2 id="upload-heading">2. 上传并整体替换</h2>
+      <form id="upload-form">
+        <div class="field"><label for="dataset-name">数据集名称</label><input id="dataset-name" maxlength="120" required placeholder="例如：封装调查合成演示"></div>
+        <div class="field"><label for="available-on">整份资料完整可用日期</label><input id="available-on" type="date" required><p class="hint">所有 Case 须在该日期前已结案、全部内容已可用。搜索使用这一登记时点；发现日期不能代替结案日期。</p></div>
+        <div class="field"><label for="availability-basis">可用性依据</label><textarea id="availability-basis" maxlength="2000" rows="3" required placeholder="填写结案记录／报告版本和日期依据；合成资料明确写出人为设定的快照约定。"></textarea></div>
+        <div class="field"><label for="csv-file">填写完成的 CSV</label><input id="csv-file" type="file" accept=".csv,text/csv" required></div>
+        <label class="declaration"><input id="availability-confirmed" type="checkbox" required>我确认整份资料在所填日期前已结案且完整可用，来源已逐条具体填写。</label>
+        <div class="actions"><button id="upload-button" type="submit">校验并整体替换当前数据集</button></div>
+      </form>
+      <p id="upload-status" class="status" role="status" aria-live="polite">尚未上传。</p>
+      <ul id="upload-errors" class="text-list"></ul>
+      <a id="search-uploaded" href="/" hidden>前往搜索当前资料</a>
+    </section>
+  </main>
+  <footer class="page-footer"><p>来源可定位不代表结论已获语义验证。上传或恢复会整体替换当前案例资料，不继承旧评估结论。</p></footer>
+</body>
+</html>

@@ -40,6 +40,7 @@ DEFAULT_TOP_K = 4
 # 上传的 records 仅由 CSV 适配器组装记录 ID、报告出处、文件名与行号。
 # 其余字段（generation_note、rationale、review_status）属生成／审阅元数据，不进入证据上下文；
 # 依据见 docs/design/behavior-contracts.md §3；下方常量列出允许进入上下文的字段。
+# 基础来源字段；网页维护沿革在 build_evidence_context 中另作逐字段投影。
 SOURCE_FIELDS = ("sheet", "failure_mode_id", "root_cause", "corrective_action", "closure_status", "records")
 
 
@@ -227,7 +228,7 @@ def prepare_answer_run(
 
     _check_query_and_top_k(query, known_at, top_k)
     if snapshot is None:
-        if loaded_snapshot is not None and loaded_snapshot.snapshot.split == "user_upload":
+        if loaded_snapshot is not None:
             snapshot = CorpusSnapshot(**{
                 key: getattr(loaded_snapshot.snapshot, key) for key in SNAPSHOT_IDENTITY_FIELDS
             })
@@ -408,7 +409,7 @@ def build_evidence_context(
 
     1. 只处理 `hits` 中的 Case，顺序与 `hits` 一致，`rank` 从 1 开始连续；
     2. 每条 Case 保留历史原文：`Case` 字段、该 Case 的 `Detail` 与 `Evidence`；
-    3. 来源记录只保留 `SOURCE_FIELDS` 允许的字段，生成／审阅元数据不进入上下文
+    3. 来源保留 `SOURCE_FIELDS` 基础字段与逐字段筛选的网页来源沿革；修订日志、生成／审阅元数据不进入上下文
        （draft 状态记在运行元数据里）；检查结果保留 `checkpoint_id`；
     4. 不读 qrels、标注理由或候选根因库，也不把 `score` 当相关概率放进上下文；
     5. `hits` 为空 → `cases=[]`；未知或重复的命中 `case_id` 明确报错，不静默跳过。
@@ -435,6 +436,22 @@ def build_evidence_context(
         # 按 SOURCE_FIELDS 固定字段顺序：数据库读回的字典键顺序可能与文件不同，
         # 这里统一一次，保证两条数据源路线发出的模型消息逐字一致。
         source = {key: raw_source[key] for key in SOURCE_FIELDS if key in raw_source}
+        if 'web_provenance' in raw_source:
+            provenance = raw_source['web_provenance']
+            source['web_provenance'] = {
+                'notice': '网页人工修订。原报告、CSV 行号或合成候选仅表示来源沿革，不证明修订正文。',
+                'modified_records': [
+                    {key: item[key] for key in ('record_type', 'record_id')}
+                    for item in provenance.get('modified_records', [])
+                ],
+                'origins': [
+                    {key: item[key] for key in (
+                        'record_type', 'record_id', 'kind', 'source_document_id',
+                        'source_document_name', 'source_location', 'description',
+                    ) if key in item}
+                    for item in provenance.get('origins', [])
+                ],
+            }
 
         collected.append(CaseEvidence(
             rank=rank,

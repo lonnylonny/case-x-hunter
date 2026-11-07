@@ -455,20 +455,14 @@ def test_response_serialization_error_is_500(make_client, snapshot_loader):
     assert response.json()["record"] is None
 
 
-@pytest.mark.parametrize("problem", ["identity", "detection_time"])
-def test_snapshot_prerequisite_failure_stays_503(
-    monkeypatch, loaded_snapshot, make_client, problem,
+def test_detection_time_prerequisite_failure_stays_503(
+    monkeypatch, loaded_snapshot, make_client,
 ):
-    if problem == "identity":
-        loaded = replace(loaded_snapshot, snapshot=replace(
-            loaded_snapshot.snapshot, snapshot_id="unsupported-snapshot",
-        ))
-    else:
-        loaded = replace(loaded_snapshot, records={
-            **loaded_snapshot.records,
-            "details": [replace(detail, detection_time=date(2026, 9, 16))
-                        for detail in loaded_snapshot.records["details"]],
-        })
+    loaded = replace(loaded_snapshot, records={
+        **loaded_snapshot.records,
+        "details": [replace(detail, detection_time=date(2026, 9, 16))
+                    for detail in loaded_snapshot.records["details"]],
+    })
     monkeypatch.setattr(api, "load_database_snapshot", lambda schema: loaded)
 
     response = _post(make_client(_forbidden_model_factory))
@@ -493,3 +487,15 @@ def test_two_requests_keep_their_own_query_and_reload(make_client, snapshot_load
     assert second["record"]["retrieval"]["top_k"] == 2
     # 同一 app 的两次请求各自读回一次，不缓存、不互相覆盖。
     assert snapshot_loader == [DEFAULT_SCHEMA, DEFAULT_SCHEMA]
+
+
+def test_answer_uses_restored_runtime_identity(monkeypatch, loaded_snapshot, make_client):
+    restored = replace(loaded_snapshot, snapshot=replace(
+        loaded_snapshot.snapshot, snapshot_id="demo-restore-test",
+    ))
+    monkeypatch.setattr(api, "load_database_snapshot", lambda schema: restored)
+    model = CannedModel(answer_text("C1"))
+    response = _post(make_client(lambda: model))
+    assert response.status_code == 200, response.text
+    assert response.json()["record"]["snapshot"]["snapshot_id"] == "demo-restore-test"
+    assert len(model.calls) == 1

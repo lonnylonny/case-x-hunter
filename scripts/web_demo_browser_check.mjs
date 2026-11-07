@@ -298,8 +298,8 @@ try {
   await send('Page.navigate', { url: new URL('/settings', pageUrl).href });
   await waitUntil('document.readyState === "complete" && document.getElementById("settings-fields") && !document.getElementById("settings-fields").disabled');
   await waitUntil('!document.getElementById("model-state").textContent.includes("正在")');
-  check('settings share the upload page and never accept a key', await evaluate(
-    'Boolean(document.getElementById("upload-form")) && !document.querySelector("input[type=password]") && document.getElementById("model-state").textContent.includes("未配置")'));
+  check('settings link to the library and never accept a key', await evaluate(
+    '!document.getElementById("upload-form") && Array.from(document.links).some(link => link.pathname === "/library") && !document.querySelector("input[type=password]") && document.getElementById("model-state").textContent.includes("未配置")'));
   await evaluate('document.querySelector("#settings-form details").open = true; topK.value = "1"; maxTokens.value = "2048"; settingsForm.requestSubmit();');
   await waitUntil('!settingsBusy');
   check('settings save returns the effective values', await evaluate(

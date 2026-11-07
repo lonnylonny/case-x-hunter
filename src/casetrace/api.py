@@ -25,16 +25,18 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import date, datetime
+import hashlib
 import os
 from pathlib import Path
 import re
 from typing import Annotated
 
 from fastapi import FastAPI, Query, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
 import psycopg
 from starlette.concurrency import run_in_threadpool
 
@@ -58,8 +60,14 @@ from casetrace.env import load_local_env
 from casetrace.storage.schema import DEFAULT_SCHEMA
 from casetrace.data.csv_import import CsvImportError, MAX_UPLOAD_BYTES, PLACEHOLDERS, csv_bytes
 from casetrace.data.constants import CHECKPOINT_TYPES, DETECTION_STAGES, RELEVANCE_VALUES
+from casetrace.data.case_browser import browse_cases, case_detail, product_info
+from casetrace.data.case_editing import CaseEditRequest, CaseEditError, CaseNotFoundError
 from casetrace.storage.connection import connect
-from casetrace.storage.snapshot import LoadedSnapshot, replace_csv_snapshot
+from casetrace.storage.snapshot import (
+    LoadedSnapshot, replace_csv_snapshot, restore_demo_snapshot,
+    SnapshotConflictError, DemoValidationError, save_case_snapshot, create_case_snapshot,
+    delete_case_snapshot,
+)
 from casetrace.settings import RuntimeSettings
 from casetrace.storage.settings import load_settings, save_settings
 
@@ -169,13 +177,14 @@ class DatasetUploadMetadata(BaseModel):
     known_at: date
     basis: str = Field(min_length=1, max_length=2000)
     filename: str = Field(min_length=1, max_length=255)
+    expected_snapshot_id: str = Field(min_length=1, max_length=200)
 
     @field_validator("known_at", mode="before")
     @classmethod
     def require_date(cls, value):
         return AnswerRequest._require_date_value(value)
 
-    @field_validator("dataset_name", "basis", "filename")
+    @field_validator("dataset_name", "basis", "filename", "expected_snapshot_id")
     @classmethod
     def require_specific_text(cls, value: str) -> str:
         if not value.strip() or value.strip().casefold() in PLACEHOLDERS or "\x00" in value:
@@ -190,7 +199,89 @@ class DatasetUploadMetadata(BaseModel):
         return value
 
 
+class DatasetRestoreRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_snapshot_id: str = Field(min_length=1, max_length=200)
+
+    @field_validator("expected_snapshot_id")
+    @classmethod
+    def nonblank_snapshot(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("请提供当前快照 ID")
+        return value
+
+
+class SnapshotQuery(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    snapshot_id: str | None = Field(default=None, min_length=1, max_length=200)
+
+    @field_validator('snapshot_id')
+    @classmethod
+    def require_identity(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError('快照 ID 不能为空白')
+        return value
+
+
+class CaseQuery(SnapshotQuery):
+    snapshot_id: str = Field(min_length=1, max_length=200)
+    case_id: str = Field(min_length=1)
+
+
+class CaseWriteQuery(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    case_id: str = Field(min_length=1)
+
+
+class CaseDeleteRequest(BaseModel):
+    """删除确认：当前身份必须匹配，且必须显式确认；不提供回收站。"""
+    model_config = ConfigDict(extra='forbid')
+    expected_snapshot_id: str = Field(min_length=1, max_length=200)
+    confirmed: StrictBool
+
+    @field_validator('expected_snapshot_id')
+    @classmethod
+    def require_identity(cls, value: str) -> str:
+        if not value.strip() or value.strip().casefold() in PLACEHOLDERS:
+            raise ValueError('请提供当前快照 ID')
+        return value
+
+    @field_validator('confirmed')
+    @classmethod
+    def require_confirmation(cls, value: bool) -> bool:
+        if not value:
+            raise ValueError('须明确确认删除；本功能不提供回收站')
+        return value
+
+
+class CaseListQuery(SnapshotQuery):
+    keyword: str = Field(default='', max_length=200)
+    product_id: str = Field(default='', max_length=200)
+    customer_id: str = Field(default='', max_length=200)
+    abnormal_process_id: str = Field(default='', max_length=200)
+    detection_stage: str = Field(default='', max_length=200)
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=20, ge=1, le=100)
+
+    @field_validator('detection_stage')
+    @classmethod
+    def valid_stage(cls, value: str) -> str:
+        if value and value not in DETECTION_STAGES:
+            raise ValueError('发现阶段须为合法枚举')
+        return value
+
+
 def dataset_info(loaded: LoadedSnapshot) -> dict:
+    if loaded.payload.get('user_maintained'):
+        source_type = 'user_maintained'
+    elif loaded.snapshot.split == 'user_upload' or loaded.payload.get('import_format'):
+        source_type = 'csv_upload'
+    elif (loaded.snapshot.snapshot_id == DEV_V3_SNAPSHOT.snapshot_id
+          or loaded.payload.get('baseline_snapshot_id') == DEV_V3_SNAPSHOT.snapshot_id):
+        source_type = 'builtin_demo'
+    else:
+        source_type = 'other'
     return {
         "name": loaded.payload.get("dataset_name", "内置合成示例 dev-v3"
                                    if loaded.snapshot.snapshot_id == DEV_V3_SNAPSHOT.snapshot_id
@@ -204,7 +295,9 @@ def dataset_info(loaded: LoadedSnapshot) -> dict:
         "review_status": loaded.snapshot.review_status,
         "dataset_sha256": loaded.snapshot.dataset_sha256,
         "content_digest": loaded.snapshot.content_digest,
-        "is_upload": loaded.snapshot.split == "user_upload",
+        "is_upload": loaded.snapshot.split == "user_upload" or bool(loaded.payload.get('user_maintained')),
+        "baseline_snapshot_id": loaded.payload.get("baseline_snapshot_id"),
+        "source_type": source_type,
     }
 
 
@@ -347,6 +440,35 @@ def create_app(
 
     app = FastAPI(title=API_TITLE, version="0.1.0", description=API_DESCRIPTION)
 
+    # 同一发布的页面、导航和资源使用同一内容版本，绕过旧版未带版本的缓存。
+    ui_hash = hashlib.sha256()
+    for path in sorted(WEB_DIR.iterdir()):
+        if path.suffix in ('.html', '.js', '.css'):
+            ui_hash.update(path.name.encode())
+            ui_hash.update(path.read_bytes())
+    ui_version = ui_hash.hexdigest()[:16]
+    page_routes = ('/', '/settings', '/library')
+
+    def web_page(path: Path) -> HTMLResponse:
+        def version_url(match: re.Match) -> str:
+            attribute, url = match.groups()
+            if url in page_routes or url.startswith('/static/'):
+                separator = '&' if '?' in url else '?'
+                url = f'{url}{separator}ui={ui_version}'
+            return f'{attribute}="{url}"'
+        html = re.sub(r'(href|src)="([^"]+)"', version_url, path.read_text(encoding='utf-8'))
+        return HTMLResponse(html)
+
+    @app.middleware('http')
+    async def web_cache_policy(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path in page_routes or request.url.path.startswith('/static/'):
+            response.headers['Cache-Control'] = 'no-cache'
+        # 只在明确的修复入口清理此站点 HTTP 缓存，不触及 cookies/storage 或业务资料。
+        if request.url.path in page_routes and request.query_params.get('refresh_ui') == '1':
+            response.headers['Clear-Site-Data'] = '"cache"'
+        return response
+
     @app.exception_handler(RequestValidationError)
     async def safe_validation_error(request: Request, error: RequestValidationError) -> JSONResponse:
         # 保留字段定位与原因，不把意外提交的凭据通过默认 input/ctx 字段回显。
@@ -364,10 +486,10 @@ def create_app(
     app.mount(STATIC_URL, StaticFiles(directory=WEB_DIR), name="static")
 
     @app.get("/", include_in_schema=False)
-    def index() -> FileResponse:
+    def index() -> HTMLResponse:
         """单页入口：返回本模块旁的 HTML 文件，不连接数据库、不构造模型。"""
 
-        return FileResponse(INDEX_HTML, media_type="text/html")
+        return web_page(INDEX_HTML)
 
     @app.get("/health", response_model=HealthResponse, summary="进程存活检查")
     def health() -> HealthResponse:
@@ -379,14 +501,18 @@ def create_app(
             "Content-Disposition": 'attachment; filename="casetrace-template.csv"',
         })
 
-    @app.get("/dataset/example", summary="下载完整合成示例（1 Case、2 Detail、3 Evidence）")
+    @app.get("/dataset/example", summary="下载上传格式示例（1 案、2 明细、3 证据）")
     def dataset_example() -> FileResponse:
         return FileResponse(WEB_DIR / "import-example.csv", media_type="text/csv; charset=utf-8",
                             filename="casetrace-example.csv")
 
     @app.get("/settings", include_in_schema=False)
-    def settings() -> FileResponse:
-        return FileResponse(WEB_DIR / "settings.html", media_type="text/html")
+    def settings() -> HTMLResponse:
+        return web_page(WEB_DIR / "settings.html")
+
+    @app.get("/library", include_in_schema=False)
+    def library() -> HTMLResponse:
+        return web_page(WEB_DIR / "library.html")
 
     @app.get("/dataset", summary="当前数据集状态")
     def current_dataset() -> JSONResponse:
@@ -397,14 +523,179 @@ def create_app(
         except Exception:
             return _json_response(500, INTERNAL_ERROR, UNEXPECTED_MESSAGE, None)
 
-    @app.get("/dataset/reference", summary="当前合法主数据与枚举")
-    def dataset_reference() -> JSONResponse:
+    @app.get("/cases", summary="浏览当前案例资料库，不调用模型")
+    def cases(query: Annotated[CaseListQuery, Query()]) -> JSONResponse:
         try:
             loaded = load_database_snapshot(app.state.db_schema)
+            if query.snapshot_id is not None and loaded.snapshot.snapshot_id != query.snapshot_id:
+                return JSONResponse(status_code=409, content={
+                    'status': 'snapshot_conflict', 'message': '资料已变化，请刷新核对。',
+                })
+            return JSONResponse(jsonable_encoder({
+                'dataset': dataset_info(loaded),
+                **browse_cases(loaded.records, loaded.reference, **query.model_dump(exclude={'snapshot_id'})),
+            }))
+        except (ValueError, OSError, psycopg.Error):
+            return _json_response(503, SERVICE_UNAVAILABLE, DB_PREREQUISITE_MESSAGE, None)
+        except Exception:
+            return _json_response(500, INTERNAL_ERROR, UNEXPECTED_MESSAGE, None)
+
+    @app.get("/case", summary="完整案例、子记录、来源与分组")
+    def get_case(query: Annotated[CaseQuery, Query()]) -> JSONResponse:
+        try:
+            loaded = load_database_snapshot(app.state.db_schema)
+            if loaded.snapshot.snapshot_id != query.snapshot_id:
+                return JSONResponse(status_code=409, content={
+                    'status': 'snapshot_conflict', 'message': '资料已变化，请刷新核对。',
+                })
+            detail = case_detail(loaded.records, loaded.reference, loaded.payload['sources'], query.case_id)
+            if detail is None:
+                return JSONResponse(status_code=404, content={
+                    'status': 'case_not_found', 'message': '当前资料中没有该案例。',
+                })
+            return JSONResponse(jsonable_encoder({'snapshot_id': query.snapshot_id, **detail,
+                'revisions': loaded.payload.get('case_revisions', {}).get(query.case_id, [])}))
+        except (ValueError, OSError, psycopg.Error):
+            return _json_response(503, SERVICE_UNAVAILABLE, DB_PREREQUISITE_MESSAGE, None)
+        except Exception:
+            return _json_response(500, INTERNAL_ERROR, UNEXPECTED_MESSAGE, None)
+
+    @app.put('/case', summary='校验并保存整案及修订记录')
+    async def update_case(request: Request, query: Annotated[CaseWriteQuery, Query()]) -> JSONResponse:
+        case_id = query.case_id
+        raw = bytearray()
+        async for chunk in request.stream():
+            if len(raw) + len(chunk) > MAX_UPLOAD_BYTES:
+                return _json_response(413, 'invalid_dataset', '整案提交超过 5 MiB，未保存。', None)
+            raw.extend(chunk)
+        from pydantic import ValidationError
+        try:
+            submission = CaseEditRequest.model_validate_json(bytes(raw))
+        except ValidationError as error:
+            raise RequestValidationError([{**item, 'loc': ('body', *item['loc'])}
+                                          for item in error.errors()]) from error
+
+        def save():
+            try:
+                with connect() as connection:
+                    loaded, changed = save_case_snapshot(connection, case_id=case_id,
+                        submission=submission, schema=app.state.db_schema)
+                detail = case_detail(loaded.records, loaded.reference, loaded.payload['sources'], case_id)
+                return JSONResponse(jsonable_encoder({
+                    'status': 'saved' if changed else 'unchanged', 'dataset': dataset_info(loaded),
+                    'detail': {'snapshot_id': loaded.snapshot.snapshot_id, **detail,
+                               'revisions': loaded.payload.get('case_revisions', {}).get(case_id, [])},
+                }))
+            except SnapshotConflictError:
+                return _json_response(409, 'snapshot_conflict', '资料已变化，请保留输入并刷新核对。', None)
+            except CaseNotFoundError:
+                return _json_response(404, 'case_not_found', '当前资料中没有该案例。', None)
+            except CaseEditError as error:
+                return JSONResponse(status_code=422, content={
+                    'status': 'invalid_dataset', 'message': '未保存，请修正字段。', 'errors': error.errors})
+            except (ValueError, OSError, RuntimeError, psycopg.Error):
+                return _json_response(503, SERVICE_UNAVAILABLE, '保存未完成，请检查服务与数据库。', None)
+            except Exception:
+                return _json_response(500, INTERNAL_ERROR, UNEXPECTED_MESSAGE, None)
+        return await run_in_threadpool(save)
+
+    @app.post('/cases', status_code=201, summary='创建完整案例及首次修订')
+    async def create_case(request: Request) -> JSONResponse:
+        raw = bytearray()
+        async for chunk in request.stream():
+            if len(raw) + len(chunk) > MAX_UPLOAD_BYTES:
+                return _json_response(413, 'invalid_dataset', '整案提交超过 5 MiB，未保存。', None)
+            raw.extend(chunk)
+        from pydantic import ValidationError
+        try:
+            submission = CaseEditRequest.model_validate_json(bytes(raw))
+        except ValidationError as error:
+            raise RequestValidationError([{**item, 'loc': ('body', *item['loc'])}
+                                          for item in error.errors()]) from error
+
+        def save():
+            try:
+                with connect() as connection:
+                    loaded, case_id = create_case_snapshot(
+                        connection, submission=submission, schema=app.state.db_schema)
+                detail = case_detail(loaded.records, loaded.reference, loaded.payload['sources'], case_id)
+                return JSONResponse(status_code=201, content=jsonable_encoder({
+                    'status': 'created', 'case_id': case_id, 'dataset': dataset_info(loaded),
+                    'detail': {'snapshot_id': loaded.snapshot.snapshot_id, **detail,
+                               'revisions': loaded.payload.get('case_revisions', {}).get(case_id, [])},
+                }))
+            except SnapshotConflictError:
+                return _json_response(409, 'snapshot_conflict', '资料已变化，请保留输入并刷新核对。', None)
+            except CaseEditError as error:
+                return JSONResponse(status_code=422, content={
+                    'status': 'invalid_dataset', 'message': '未保存，请修正字段。', 'errors': error.errors})
+            except (ValueError, OSError, RuntimeError, psycopg.Error):
+                return _json_response(503, SERVICE_UNAVAILABLE, '新增未完成，请检查服务与数据库。', None)
+            except Exception:
+                return _json_response(500, INTERNAL_ERROR, UNEXPECTED_MESSAGE, None)
+        return await run_in_threadpool(save)
+
+    @app.delete('/case', summary='删除合法案例并返回新资料身份')
+    def delete_case(query: Annotated[CaseWriteQuery, Query()], body: CaseDeleteRequest) -> JSONResponse:
+        try:
+            with connect() as connection:
+                loaded = delete_case_snapshot(
+                    connection, case_id=query.case_id,
+                    expected_snapshot_id=body.expected_snapshot_id, schema=app.state.db_schema)
+            return JSONResponse(jsonable_encoder({
+                'status': 'deleted', 'case_id': query.case_id, 'dataset': dataset_info(loaded),
+            }))
+        except SnapshotConflictError:
+            return _json_response(409, 'snapshot_conflict', '资料已变化，请重新读取影响后再次确认。', None)
+        except CaseNotFoundError:
+            return _json_response(404, 'case_not_found', '当前资料中没有该案例。', None)
+        except CaseEditError as error:
+            return JSONResponse(status_code=422, content={
+                'status': 'invalid_dataset', 'message': '未删除，删除后的资料不满足业务规则。',
+                'errors': error.errors})
+        except (ValueError, OSError, RuntimeError, psycopg.Error):
+            return _json_response(503, SERVICE_UNAVAILABLE, '删除未完成，请检查服务与数据库。', None)
+        except Exception:
+            return _json_response(500, INTERNAL_ERROR, UNEXPECTED_MESSAGE, None)
+
+    @app.post("/dataset/restore-demo", summary="恢复九案完整演示资料")
+    def restore_dataset(request: DatasetRestoreRequest) -> JSONResponse:
+        try:
+            with connect() as connection:
+                loaded = restore_demo_snapshot(
+                    connection, expected_snapshot_id=request.expected_snapshot_id,
+                    schema=app.state.db_schema,
+                )
+            return JSONResponse({"status": "restored", "message": "已载入九案完整演示数据。",
+                                 "dataset": dataset_info(loaded)})
+        except SnapshotConflictError:
+            return JSONResponse(status_code=409, content={
+                "status": "snapshot_conflict", "message": "资料已变化，请刷新核对后再次确认恢复。",
+            })
+        except DemoValidationError as error:
+            return JSONResponse(status_code=422, content={
+                "status": "invalid_dataset", "message": str(error),
+            })
+        except (ValueError, OSError, RuntimeError, psycopg.Error):
+            return _json_response(503, SERVICE_UNAVAILABLE,
+                                  "恢复未完成，原资料未被本次操作修改；请检查服务与数据库。", None)
+        except Exception:
+            return _json_response(500, INTERNAL_ERROR, UNEXPECTED_MESSAGE, None)
+
+    @app.get("/dataset/reference", summary="当前合法主数据与枚举")
+    def dataset_reference(query: Annotated[SnapshotQuery, Query()]) -> JSONResponse:
+        try:
+            loaded = load_database_snapshot(app.state.db_schema)
+            if query.snapshot_id is not None and loaded.snapshot.snapshot_id != query.snapshot_id:
+                return JSONResponse(status_code=409, content={
+                    'status': 'snapshot_conflict', 'message': '资料已变化，请刷新核对。',
+                })
             reference = loaded.reference
             return JSONResponse({
-                "products": [{**item, "customer_id": reference.product_customers[key]}
-                             for key, item in reference.products.items()],
+                "snapshot_id": loaded.snapshot.snapshot_id,
+                "products": [product_info(reference, key) for key in reference.products],
+                "customers": reference.customer_names,
+                "product_families": reference.product_families,
                 "failure_modes": [{"failure_mode_id": key, "failure_mode": item["failure_mode"],
                                    "applicable_package": item["applicable_package"]}
                                   for key, item in reference.failure_modes.items()],
@@ -413,7 +704,7 @@ def create_app(
                 "detection_stages": DETECTION_STAGES, "checkpoint_types": CHECKPOINT_TYPES,
                 "relevance_values": RELEVANCE_VALUES,
             })
-        except (ValueError, OSError):
+        except (ValueError, OSError, psycopg.Error):
             return _json_response(503, SERVICE_UNAVAILABLE, DB_PREREQUISITE_MESSAGE, None)
         except Exception:
             return _json_response(500, INTERNAL_ERROR, UNEXPECTED_MESSAGE, None)
@@ -430,6 +721,8 @@ def create_app(
                 "status": "invalid_dataset", "message": "未导入，原数据保持可查询。",
                 "errors": error.errors,
             })
+        except SnapshotConflictError:
+            return _json_response(409, 'snapshot_conflict', '资料已变化，请刷新核对后重新上传。', None)
         except (ValueError, OSError, RuntimeError, psycopg.Error):
             return _json_response(503, SERVICE_UNAVAILABLE,
                                   "替换未完成，原数据未被本次上传修改；请检查数据库状态。", None)
@@ -493,6 +786,9 @@ def create_app(
             date_error = unsupported_date(request, loaded)
             if date_error is not None:
                 return date_error
+            if not loaded.records['cases']:
+                return _json_response(200, 'empty_dataset',
+                    '当前资料库为空：请先到案例资料库新增案例、导入 CSV 或恢复完整演示数据；本次未构建检索，也未调用模型。', None)
             run = prepare_answer_run(
                 request.query, request.known_at, top_k=top_k,
                 loaded_snapshot=loaded, db_schema=schema,
@@ -545,6 +841,9 @@ def create_app(
             date_error = unsupported_date(request, loaded)
             if date_error is not None:
                 return date_error
+            if not loaded.records['cases']:
+                return _json_response(200, 'empty_dataset',
+                    '当前资料库为空：请先到案例资料库新增案例、导入 CSV 或恢复完整演示数据；本次未构建检索，也未调用模型。', None)
             outcome = run_answer_question(
                 request.query, request.known_at,
                 model_factory=model_factory, query_id=None, top_k=top_k,

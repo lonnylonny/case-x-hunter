@@ -92,16 +92,16 @@ def test_search_failures_are_explicit_and_safe(search_client, monkeypatch, error
     assert "secret" not in response.text
 
 
-def test_search_rejects_wrong_snapshot(search_client, loaded_snapshot, monkeypatch):
+def test_search_uses_current_runtime_snapshot(search_client, loaded_snapshot, monkeypatch):
     wrong = replace(loaded_snapshot, snapshot=replace(
-        loaded_snapshot.snapshot, snapshot_id="unsupported-snapshot",
+        loaded_snapshot.snapshot, snapshot_id="demo-restore-test",
     ))
     monkeypatch.setattr(api, "load_database_snapshot", lambda schema: wrong)
     response = search_client.post("/search", json={
         "query": "焊线脱落", "known_at": "2026-09-15",
     })
-    assert response.status_code == 503
-    assert response.json()["status"] == "service_unavailable"
+    assert response.status_code == 200
+    assert response.json()["record"]["snapshot"]["snapshot_id"] == "demo-restore-test"
 
 
 @pytest.mark.parametrize("key,configured", [("", False), ("  ", False), ("fake-secret", True)])

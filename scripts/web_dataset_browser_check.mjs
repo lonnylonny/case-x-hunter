@@ -15,6 +15,8 @@ const answerFixture = JSON.parse(readFileSync(
 let dataset = {name: 'OLD', snapshot_id: 'old', case_count: 9, updated_at: '2026-09-15',
   known_at: '2026-09-15', is_upload: false};
 let datasetReads = 0;
+let restores = 0;
+let restoreFailure = 0;
 let searchRequests = 0;
 let answerRequests = 0;
 let submittedDate;
@@ -27,8 +29,25 @@ function json(res, data, status = 200) {
 }
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
+  if (url.pathname === '/dataset/restore-demo') {
+    restores++;
+    let raw = '';
+    for await (const chunk of req) raw += chunk;
+    if (restoreFailure || JSON.parse(raw).expected_snapshot_id !== dataset.snapshot_id) {
+      if (restoreFailure === 422) json(res, {status: 'invalid_dataset', message: 'C001 来源候选不兼容'}, 422);
+      else json(res, {status: 'snapshot_conflict', message: '资料已变化，请刷新核对后再次确认恢复。'}, 409);
+    } else {
+      dataset = {...dataset, name: '完整演示数据（九案）', snapshot_id: `restored-${restores}`,
+        case_count: 9, detail_count: 9, evidence_count: 9, known_at: '2026-09-15', is_upload: false};
+      json(res, {status: 'restored', dataset});
+    }
+    return;
+  }
   if (url.pathname === '/dataset' && req.method === 'POST') {
     for await (const chunk of req) { /* consume the uploaded fixture */ }
+    if (url.searchParams.get('expected_snapshot_id') !== dataset.snapshot_id) {
+      json(res, {status: 'snapshot_conflict', message: '资料已变化'}, 409); return;
+    }
     dataset = {...dataset, name: url.searchParams.get('dataset_name'), snapshot_id: 'uploaded',
       case_count: 1, known_at: url.searchParams.get('known_at'), is_upload: true};
     json(res, {status: 'imported', dataset});
@@ -38,6 +57,19 @@ const server = createServer(async (req, res) => {
     datasetReads++;
     if (holdDataset) pendingDatasets.push({res, data: {...dataset}});
     else json(res, dataset);
+    return;
+  }
+  if (url.pathname === '/cases') {
+    const data = {dataset: {...dataset}, items: [], total_count: dataset.case_count,
+      matched_count: 0, page: 1, page_size: 20};
+    if (holdDataset) pendingDatasets.push({res, data});
+    else json(res, data);
+    return;
+  }
+  if (url.pathname === '/dataset/reference') {
+    json(res, {snapshot_id: dataset.snapshot_id, products: [], customers: {}, product_families: {},
+      failure_modes: [], processes: {}, route_processes: {}, detection_stages: [],
+      checkpoint_types: [], relevance_values: []});
     return;
   }
   if (url.pathname === '/model-status') { json(res, {configured: true}); return; }
@@ -66,7 +98,8 @@ const server = createServer(async (req, res) => {
     return;
   }
   const file = url.pathname === '/' ? 'index.html'
-    : url.pathname === '/settings' ? 'settings.html' : url.pathname.replace('/static/', '');
+    : url.pathname === '/settings' ? 'settings.html' : url.pathname === '/library' ? 'library.html'
+    : url.pathname.replace('/static/', '');
   try {
     let content = readFileSync(join(root, file));
     if (file === 'index.html') content = content.toString().replace('</head>',
@@ -141,6 +174,19 @@ async function search() {
   await evaluate('form.requestSubmit(submitButton)');
   await waitUntil('!inFlight && !downloadButton.hidden');
 }
+async function uploadExample(name, knownAt) {
+  await waitUntil('typeof currentDataset !== "undefined" && currentDataset !== null');
+  const example = readFileSync(join(root, 'import-example.csv'), 'utf8');
+  await execute(`document.getElementById('dataset-name').value = ${JSON.stringify(name)};
+    document.getElementById('available-on').value = ${JSON.stringify(knownAt)};
+    document.getElementById('availability-basis').value = '合成验收数据完整可用';
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([${JSON.stringify(example)}], 'example.csv', {type: 'text/csv'}));
+    document.getElementById('csv-file').files = transfer.files;
+    document.querySelector('#upload-form input[type=checkbox]').checked = true;
+    uploadForm.requestSubmit();`);
+  await waitUntil('!uploading && uploadStatus.textContent.includes("替换成功")');
+}
 try {
   let port;
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -167,18 +213,9 @@ try {
   checks++;
   await evaluate('queryInput.value = "保留用户输入"');
   await search();
-  await evaluate('Array.from(document.links).find(link => link.pathname === "/settings").click()');
-  await waitUntil('location.pathname === "/settings" && typeof uploading !== "undefined"');
-  const example = readFileSync(join(root, 'import-example.csv'), 'utf8');
-  await evaluate(`document.getElementById('dataset-name').value = 'NEW';
-    document.getElementById('available-on').value = '2026-10-20';
-    document.getElementById('availability-basis').value = '合成验收数据完整可用';
-    const transfer = new DataTransfer();
-    transfer.items.add(new File([${JSON.stringify(example)}], 'example.csv', {type: 'text/csv'}));
-    document.getElementById('csv-file').files = transfer.files;
-    document.querySelector('#upload-form input[type=checkbox]').checked = true;
-    uploadForm.requestSubmit();`);
-  await waitUntil('!uploading && uploadStatus.textContent.includes("替换成功")');
+  await evaluate('Array.from(document.links).find(link => link.pathname === "/library").click()');
+  await waitUntil('location.pathname === "/library" && typeof uploading !== "undefined"');
+  await uploadExample('NEW', '2026-10-20');
   await evaluate('history.back()');
   await waitUntil('location.pathname === "/" && typeof datasetReady !== "undefined"');
   await check('history.back uses BFCache', 'restoreEvents.includes(true)');
@@ -253,6 +290,64 @@ try {
     '!downloadButton.hidden && resultBody.firstElementChild.textContent.includes("更新前的数据集")');
   assert.equal(answerRequests, 1, 'the model request is not retried');
   checks++;
+  await send('Page.navigate', {url: `${pageUrl}library`});
+  await waitUntil('typeof currentDataset !== "undefined" && currentDataset !== null');
+  // A read started before a successful write must not roll the page back afterward.
+  for (const oldFails of [false, true]) {
+    holdDataset = true;
+    await evaluate('void readCases()');
+    while (pendingDatasets.length < 1) await sleep(20);
+    const older = pendingDatasets.shift();
+    holdDataset = false;
+    await uploadExample('UPLOADED LATEST', '2026-10-20');
+    json(older.res, oldFails ? {} : older.data, oldFails ? 503 : 200);
+    await sleep(100);
+    await check(`pre-upload ${oldFails ? 'failure' : 'success'} cannot overwrite uploaded state`,
+      'currentDataset?.snapshot_id === "uploaded" && !restoreButton.disabled'
+      + ' && stateLine.textContent.includes("UPLOADED LATEST")');
+    holdDataset = false;
+  }
+  await check('format example is clearly named',
+    'Array.from(document.links).find(link => link.pathname === "/dataset/example").textContent.includes("上传格式示例")');
+  await evaluate('window.confirm = () => false; restoreButton.click()');
+  assert.equal(restores, 0, 'cancel sends no restore request');
+  checks++;
+  await evaluate('window.confirm = message => {window.confirmText = message; return true;}; restoreButton.click(); restoreButton.click()');
+  await waitUntil('!uploading && restoreStatus.textContent.includes("恢复成功")');
+  assert.equal(restores, 1, 'double click sends only one request');
+  checks++;
+  await check('confirmation and restored state',
+    'confirmText.includes("整体替换") && confirmText.includes("修订记录")'
+    + ' && currentDataset.case_count === 9 && currentDataset.known_at === "2026-09-15"');
+  restoreFailure = 409;
+  await evaluate('restoreButton.click()');
+  await waitUntil('!uploading && restoreStatus.textContent.includes("资料已变化")');
+  await check('conflict requires refresh', 'restoreButton.disabled && currentDataset === null');
+  restoreFailure = 0;
+  await evaluate('refreshDataset()');
+  await waitUntil('currentDataset !== null');
+  restoreFailure = 422;
+  await evaluate('restoreButton.click()');
+  await waitUntil('!uploading && restoreStatus.textContent.includes("C001")');
+  await check('business validation error preserves displayed state', 'currentDataset.case_count === 9');
+  restoreFailure = 0;
+  await evaluate('window.realFetch = window.fetch; window.fetch = () => Promise.reject(new Error("offline")); restoreButton.click()');
+  await waitUntil('!uploading && restoreStatus.textContent.includes("未收到可确认")');
+  await check('unknown response disables restore until refreshed', 'currentDataset === null && restoreButton.disabled');
+  await evaluate('window.fetch = window.realFetch; refreshDataset()');
+  await waitUntil('currentDataset !== null');
+  await evaluate('restoreButton.click()');
+  await waitUntil('!uploading && restoreStatus.textContent.includes("恢复成功")');
+  // Screen captures are optional artifacts inside the repository.
+  if (process.env.CASETRACE_SCREENSHOT_DIR) {
+    const {mkdirSync, writeFileSync} = await import('node:fs');
+    mkdirSync(process.env.CASETRACE_SCREENSHOT_DIR, {recursive: true});
+    for (const [name, width] of [['desktop', 1280], ['narrow', 390]]) {
+      await send('Emulation.setDeviceMetricsOverride', {width, height: 950, deviceScaleFactor: 1, mobile: false});
+      const shot = await send('Page.captureScreenshot', {format: 'png', captureBeyondViewport: true});
+      writeFileSync(join(process.env.CASETRACE_SCREENSHOT_DIR, `restore-${name}.png`), Buffer.from(shot.data, 'base64'));
+    }
+  }
   console.log(`${checks} focused checks passed`);
 } catch (error) {
   console.error(error);
