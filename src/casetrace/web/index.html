@@ -4,36 +4,40 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Case-X-Hunter 历史案例参考</title>
+  <link rel="stylesheet" href="/static/vendor/tabler/tabler-1.4.0.min.css">
   <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/ui.js" defer></script>
   <script src="/static/app.js" defer></script>
 </head>
-<body>
+<body class="app-page">
+  <a class="skip-link" href="#main-content">跳至主要内容</a>
   <header class="page-header">
-    <h1>Case-X-Hunter 历史案例参考</h1>
-    <nav class="actions" aria-label="页面导航"><a href="/" aria-current="page">搜索历史案例</a><a href="/library">案例资料库</a><a href="/settings">设置</a></nav>
+    <div class="page-pretitle">CASE-X-HUNTER · 封装质量调查</div>
+    <h1>搜索历史案例</h1>
+    <nav class="nav nav-pills" aria-label="页面导航"><a class="nav-link active" href="/" aria-current="page">搜索历史案例</a><a class="nav-link" href="/library">案例资料库</a><a class="nav-link" href="/settings">设置</a></nav>
     <p class="notice" role="note">
       搜索历史案例与检查证据，配置模型后可生成有来源的调查参考。
       <strong>历史原因与措施不等于当前异常的最终根因或当前建议。</strong>
     </p>
-    <p><a class="button secondary" id="manage-cases" href="/library">管理与编辑案例</a></p>
+
   </header>
 
-  <main>
-    <section class="panel" aria-labelledby="input-heading">
-      <h2 id="input-heading">当前已知异常</h2>
+  <main id="main-content" tabindex="-1">
+    <section class="panel card" aria-labelledby="input-heading">
+      <div class="section-heading"><h2 id="input-heading">描述当前异常</h2><a id="manage-cases" href="/library">按产品、客户或批次查案例 →</a></div>
       <p id="current-dataset" class="hint" role="status">正在读取当前数据集…</p>
       <form id="answer-form" novalidate>
         <div class="field query-field">
-          <label for="query">当前已知信息</label>
-          <textarea id="query" name="query" rows="5" required
+          <label for="query">异常现象与已有检查结果</label>
+          <textarea id="query" name="query" rows="3" required
             placeholder="例如：OQC 拉力试验显示焊线自焊盘脱开，原因尚未确认。"></textarea>
-          <p class="hint">原文发送给服务端，不改写、不截断；空白 Query 不会提交。</p>
+          <p class="hint">建议包含异常位置、发现阶段及已完成的检查；原因未确认时请明确说明。</p>
         </div>
-        <p id="model-status" class="hint" role="status">正在检查模型配置；搜索无需模型密钥。</p>
-        <p id="runtime-settings" class="hint" role="status">正在读取实例设置…</p>
+
         <div class="actions search-actions">
           <button id="submit-button" type="submit">搜索历史案例</button>
           <button id="generate-button" type="submit" class="secondary" disabled>生成调查参考</button>
+          <span id="generation-hint" class="hint">搜索无需模型；正在读取生成配置…</span>
         </div>
         <details id="example-explorer" class="input-option">
           <summary>试用示例</summary>
@@ -51,7 +55,9 @@
           </div>
         </details>
         <details class="advanced">
-          <summary>高级检索选项</summary>
+          <summary>资料范围与生成设置</summary>
+          <p id="model-status" class="hint" role="status">正在检查模型配置；搜索无需模型密钥。</p>
+          <p id="runtime-settings" class="hint" role="status">正在读取实例设置…</p>
           <div class="field-row">
             <div class="field">
               <label for="known-at">资料可用时点</label>
@@ -62,15 +68,16 @@
           </div>
         </details>
       </form>
+      <button id="reload-context" class="secondary" type="button">重新读取资料与配置</button>
     </section>
 
-    <section class="panel" aria-labelledby="status-heading">
-      <h2 id="status-heading">处理状态</h2>
+    <section class="request-feedback" aria-labelledby="status-heading">
+      <h2 id="status-heading" class="visually-hidden">处理状态</h2>
       <p id="status" class="status" role="status" aria-live="polite">尚未提交。</p>
     </section>
 
-    <section class="panel" aria-labelledby="result-heading">
-      <h2 id="result-heading">历史参考</h2>
+    <section id="results-panel" class="panel card" aria-labelledby="result-heading" tabindex="-1">
+      <h2 id="result-heading" tabindex="-1">历史参考</h2>
       <div id="result-body">
         <p class="hint">搜索后可查看候选案例与证据原文；生成调查参考后可查看采用理由和当前信息缺口。</p>
       </div>

@@ -1,0 +1,49 @@
+- generic [active] [ref=e1]:
+  - link "跳至主要内容" [ref=e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - banner [ref=e3]:
+    - generic [ref=e4]: CASE-X-HUNTER · 封装质量调查
+    - heading "搜索历史案例" [level=1] [ref=e5]
+    - navigation "页面导航" [ref=e6]:
+      - link "搜索历史案例" [ref=e7] [cursor=pointer]:
+        - /url: /?ui=0da4178a8f88fa7a
+      - link "案例资料库" [ref=e8] [cursor=pointer]:
+        - /url: /library?ui=0da4178a8f88fa7a
+      - link "设置" [ref=e9] [cursor=pointer]:
+        - /url: /settings?ui=0da4178a8f88fa7a
+    - note [ref=e10]:
+      - text: 搜索历史案例与检查证据，配置模型后可生成有来源的调查参考。
+      - strong [ref=e11]: 历史原因与措施不等于当前异常的最终根因或当前建议。
+  - main [ref=e12]:
+    - region [ref=e13]:
+      - generic [ref=e14]:
+        - heading "描述当前异常" [level=2] [ref=e15]
+        - link "按产品、客户或批次查案例 →" [ref=e16] [cursor=pointer]:
+          - /url: /library?ui=0da4178a8f88fa7a
+      - status [ref=e17]: 内置合成示例 dev-v3 · 9 个案例 · 资料可用日期 2026-09-15
+      - generic [ref=e18]:
+        - generic [ref=e19]:
+          - generic [ref=e20]: 异常现象与已有检查结果
+          - textbox "异常现象与已有检查结果" [ref=e21]:
+            - /placeholder: 例如：OQC 拉力试验显示焊线自焊盘脱开，原因尚未确认。
+          - paragraph [ref=e22]: 建议包含异常位置、发现阶段及已完成的检查；原因未确认时请明确说明。
+        - generic [ref=e23]:
+          - button "搜索历史案例" [ref=e24] [cursor=pointer]
+          - button "生成调查参考" [ref=e25] [cursor=pointer]
+          - generic [ref=e26]: 搜索无需模型；生成按当前描述重新检索并调用模型。
+        - group [ref=e27]:
+          - generic "试用示例" [ref=e28] [cursor=pointer]
+          - option "A · 焊线脱落与界面剥离" [selected]
+          - option "B · 声学扫描发现塑封空洞"
+          - option "C · 客户收货后的 BGA 缺球"
+        - group [ref=e29]:
+          - generic "资料范围与生成设置" [ref=e30] [cursor=pointer]
+      - button "重新读取资料与配置" [ref=e31] [cursor=pointer]
+    - region [ref=e32]:
+      - heading "处理状态" [level=2] [ref=e33]
+      - status [ref=e34]: 尚未提交。
+    - region [ref=e35]:
+      - heading "历史参考" [level=2] [ref=e36]
+      - paragraph [ref=e38]: 搜索后可查看候选案例与证据原文；生成调查参考后可查看采用理由和当前信息缺口。
+  - contentinfo [ref=e39]:
+    - paragraph [ref=e40]: 回答是历史参考；引用可定位不等于引用支持原句，语义支持仍需人工审阅。运行记录不含凭据。

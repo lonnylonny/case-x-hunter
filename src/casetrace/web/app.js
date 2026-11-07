@@ -37,7 +37,7 @@ const STATUS_LABELS = {
 // 运行记录里的字段名 → 中文标签；未登记的键直接显示原键名。
 const CONTEXT_LABELS = {
   case_id: 'Case', abnormal_description: '异常描述',
-  root_cause: '历史原因（该 Case 结案确认）', corrective_action: '历史改善措施',
+  root_cause: '历史原因（来源结案记录）', corrective_action: '历史改善措施',
   investigation_others: '其它调查记录', abnormal_processes: '已确认异常工序',
   detail_id: 'Detail', product_id: '产品', customer_lot: '客户批', production_lot: '生产批',
   production_time: '生产时间', detection_stage: '发现阶段', detection_time: '发现时间',
@@ -102,7 +102,7 @@ function formatValue(value) {
   if (value === null || value === undefined) {
     return '（空）';
   }
-  return String(value);
+  return String(CaseUI.label(value));
 }
 
 function textList(items, className) {
@@ -138,6 +138,7 @@ function fieldBlock(label, value, hint) {
 function setStatus(text, kind) {
   statusLine.textContent = text;
   statusLine.dataset.kind = kind || 'info';
+  if (kind === 'error') CaseUI.focus(statusLine);
 }
 
 function setBusy(busy) {
@@ -288,18 +289,81 @@ function renderSuccess(record) {
   setDownload(record, '下载本次运行记录（JSON）', record.status || STATUS_OK);
 }
 
+function candidateBackground(entry) {
+  if (!entry) return '未提供产品与批次信息';
+  return (entry.details || []).map(detail => {
+    const product = (entry.background || []).find(item => item.product_id === detail.product_id);
+    return `${product?.product_name || detail.product_id} · ${detail.product_id} · 客户 ${product?.customer_id || '未提供'}\n生产批 ${detail.production_lot} / 客户批 ${detail.customer_lot} · ${detail.detection_stage} ${detail.detection_time}`;
+  }).join('\n\n') || '未提供产品与批次信息';
+}
+
 function renderCandidateEvidence(record) {
   const section = node('section', 'block');
-  section.append(node('h3', null, '候选案例与证据原文'));
-  section.append(node('p', 'hint', '展开可核对历史记录。候选是否值得参考及证据是否支持回答，仍需审阅。'));
+  section.append(node('h3', null, `候选案例与证据原文（${record.ranking.length}）`));
+  section.append(node('p', 'hint', '仅展示本次返回的候选；历史原因不等于当前根因。勾选 2–3 案可比较，或展开证据核对。'));
+  const toolbar = node('div', 'comparison-toolbar');
+  const compare = node('button', 'secondary', '比较已选案例（0/3）');
+  compare.type = 'button'; compare.disabled = true;
+  const selectedStatus = node('span', 'hint', '请选择 2–3 个候选案例。');
+  selectedStatus.setAttribute('role', 'status');
+  const grid = node('div', 'candidate-grid');
+  const comparison = node('section', 'block'); comparison.hidden = true;
+  const selected = new Map();
+  const clear = node('button', 'secondary', '清除选择'); clear.type = 'button';
+  const choices = [];
+  const update = () => {
+    compare.textContent = `比较已选案例（${selected.size}/3）`;
+    compare.disabled = selected.size < 2;
+    selectedStatus.textContent = selected.size === 3 ? '已选 3 案，请取消一案后再选。' : `已选 ${selected.size} 案，可比较 2–3 案。`;
+    for (const input of choices) input.disabled = !input.checked && selected.size >= 3;
+    comparison.hidden = true; comparison.replaceChildren();
+  };
+  clear.addEventListener('click', () => { selected.clear(); for (const input of choices) input.checked = false; update(); });
+  compare.addEventListener('click', () => {
+    comparison.replaceChildren(node('h3', null, '历史候选对比'));
+    comparison.append(node('p', 'hint', '以下均为本次运行快照中的历史记录；不推断当前原因，不改变检索排名。'));
+    const wrap = node('div', 'table-scroll'); wrap.tabIndex = 0;
+    wrap.setAttribute('role', 'region'); wrap.setAttribute('aria-label', '历史候选比较表');
+    const table = node('table', 'comparison-table');
+    const head = node('thead'); const row = node('tr'); row.append(node('th', null, '比较项目'));
+    for (const id of selected.keys()) row.append(node('th', null, id));
+    head.append(row); table.append(head);
+    const body = node('tbody');
+    for (const [label, value] of [
+      ['历史异常', entry => entry?.case?.abnormal_description],
+      ['产品与批次', candidateBackground],
+      ['历史原因', entry => entry?.case?.root_cause],
+      ['历史措施', entry => entry?.case?.corrective_action],
+      ['调查证据', entry => (entry?.evidences || []).map(item => `${item.checkpoint_id} · ${item.custom_name || item.checkpoint_type}\n${item.result}`).join('\n\n')],
+    ]) {
+      const tr = node('tr'); const th = node('th', null, label); th.scope = 'row'; tr.append(th);
+      for (const entry of selected.values()) tr.append(node('td', null, value(entry) || '未提供'));
+      body.append(tr);
+    }
+    table.append(body); wrap.append(table); comparison.append(wrap); comparison.hidden = false;
+    CaseUI.focus(comparison);
+  });
+  toolbar.append(compare, clear, selectedStatus); section.append(toolbar, comparison);
   for (const item of record.ranking) {
     const entry = contextCase(record, item.case_id);
-    const card = node('article', 'card');
+    const card = node('article', 'candidate-card');
     card.append(node('h4', null, `${item.rank}. ${item.case_id}`));
-    card.append(node('p', 'field-value', entry && entry.case ? entry.case.abnormal_description : '（缺少历史原文）'));
-    card.append(renderContextCase(record, item.case_id));
-    section.append(card);
+    card.append(node('p', 'field-value', entry?.case?.abnormal_description || '未提供异常描述'));
+    card.append(node('p', 'candidate-meta field-value', candidateBackground(entry)));
+    card.append(fieldBlock('历史结案原因', entry?.case?.root_cause || '未提供'));
+    const actions = node('div', 'actions');
+    const label = node('label', 'compare-choice'); const input = node('input'); input.type = 'checkbox';
+    input.setAttribute('aria-label', `比较 ${item.case_id}`);
+    input.addEventListener('change', () => { if (input.checked) selected.set(item.case_id, entry); else selected.delete(item.case_id); update(); });
+    choices.push(input); label.append(input, document.createTextNode('加入比较'));
+    const link = node('a', null, '资料库完整详情 →');
+    link.href = `/library?${new URLSearchParams({case_id: item.case_id, snapshot_id: record.snapshot?.snapshot_id || ''})}`;
+    actions.append(label, link); card.append(actions);
+    const context = renderContextCase(record, item.case_id);
+    context.querySelector('summary').textContent = `查看调查证据与原文（${entry?.evidences?.length || 0} 项证据） · ${item.case_id}`;
+    card.append(context); grid.append(card);
   }
+  section.append(grid);
   return section;
 }
 
@@ -316,12 +380,17 @@ function renderEmptyDataset(message) {
 
 function renderSearch(record) {
   const fragment = document.createDocumentFragment();
-  fragment.append(renderRunSummary(record));
   fragment.append(node('p', 'callout', record.status === STATUS_NO_HITS
-    ? '没有检索候选，未调用模型；这不表示资料库不存在相关案例，可补充或调整当前已知信息后再搜索。'
-    : '本次仅检索历史候选与证据原文，未调用模型、未生成调查参考，也未判断这些候选是否足以支持回答。'));
-  fragment.append(renderRanking(record.ranking));
+    ? '没有检索候选，未调用模型；可调整异常描述，补充位置、阶段或检查结果后重新搜索。'
+    : `已返回 ${record.ranking.length} 个历史候选，未调用模型。候选不代表已确认相关，仍需核对证据。`));
   if (record.ranking.length) fragment.append(renderCandidateEvidence(record));
+  else {
+    const link = node('a', null, '按产品、客户或批次浏览资料库 →'); link.href = '/library'; fragment.append(link);
+  }
+  const audit = node('details', 'retrieval-audit');
+  audit.append(node('summary', null, '本次请求与检索排序依据'));
+  audit.append(renderRanking(record.ranking), renderRunSummary(record));
+  fragment.append(audit);
   resultBody.replaceChildren(fragment);
   setDownload(record, '下载本次检索记录（JSON）', record.status);
 }
@@ -398,7 +467,7 @@ function renderAdoptedCases(record, caseAnswers) {
     button.setAttribute('aria-label', `展开 ${item.case_id} 的调查参考`);
     button.addEventListener('click', () => {
       description.open = true;
-      description.scrollIntoView({behavior: 'smooth', block: 'start'});
+      description.scrollIntoView({behavior: 'instant', block: 'start'});
       description.querySelector('summary').focus({preventScroll: true});
     });
     identity.append(button, node('span', 'cell-note', '查看详情 ↓'));
@@ -530,54 +599,49 @@ function renderContextCase(record, caseId) {
   details.append(node('summary', null, `原始上下文：${caseId}`));
   const entry = contextCase(record, caseId);
   if (!entry) {
-    details.append(node('p', 'hint',
-      `本次运行记录的上下文中没有 ${caseId} 的条目，无法展开原始 Case。`));
+    details.append(node('p', 'hint', `本次运行记录中缺少 ${caseId} 的原始上下文。`));
     return details;
   }
-  details.append(fieldBlock('Case（历史原文）', renderObject(entry.case)));
-  details.append(fieldBlock('Detail（生产与发现事实）', renderObjectList(entry.details)));
-  details.append(fieldBlock('Evidence（检查结果）', renderObjectList(entry.evidences)));
-  if (entry.source?.web_provenance) {
-    details.append(fieldBlock('人工修订与来源沿革', renderObject(entry.source.web_provenance)));
+  const add = (label, value, key) => {
+    const block = fieldBlock(label, value); block.dataset.sourceField = key;
+    block.classList.add('evidence-target'); details.append(block); return block;
+  };
+  for (const [key, value] of Object.entries(entry.case || {})) {
+    add(CONTEXT_LABELS[key] || key, formatValue(value), `case.${key}`);
   }
-  if (Array.isArray(entry.source?.records)) {
-    details.append(fieldBlock('结案状态（来源声明）', entry.source.closure_status));
+  for (const item of entry.evidences || []) {
+    const evidence = add(`调查证据 ${item.checkpoint_id} · ${item.custom_name || item.checkpoint_type}`, renderObject(item), `checkpoint:${item.checkpoint_id}`);
+    evidence.classList.add('evidence');
   }
-  details.append(fieldBlock('来源记录（允许进入上下文的字段）',
-    Array.isArray(entry.source?.records) ? renderObjectList(entry.source.records) : renderObject(entry.source)));
-  details.append(fieldBlock('产品背景', renderObjectList(entry.background)));
-  details.append(fieldBlock('已确认异常工序', renderObjectList(entry.processes)));
+  for (const item of entry.details || []) add(`批次明细 ${item.detail_id}`, renderObject(item), `detail:${item.detail_id}`);
+  add('产品背景', renderObjectList(entry.background), 'background');
+  add('已确认异常工序', renderObjectList(entry.processes), 'processes');
+  if (entry.source?.web_provenance) add('人工修订与来源沿革', renderObject(entry.source.web_provenance), 'source.web_provenance');
+  add('来源记录（仅用于出处核对）', Array.isArray(entry.source?.records) ? renderObjectList(entry.source.records) : renderObject(entry.source), 'source');
   return details;
 }
 
 function renderSources(record, sources) {
   const items = Array.isArray(sources) ? sources : [];
   const details = node('details', 'sources');
-  details.append(node('summary', null,
-    items.length ? `来源与原始上下文（${items.length} 处来源）` : '来源与原始上下文（无来源）'));
-  if (!items.length) {
-    details.append(node('p', 'hint', '本次回答没有列出可展开的来源。'));
-    return details;
-  }
-
+  details.append(node('summary', null, items.length ? `来源与原始上下文（${items.length} 处来源）` : '来源与原始上下文（无来源）'));
+  if (!items.length) { details.append(node('p', 'hint', '本次回答没有列出可展开的来源。')); return details; }
+  const contexts = new Map();
+  for (const source of items) if (!contexts.has(source.case_id)) contexts.set(source.case_id, renderContextCase(record, source.case_id));
   const list = node('ul', 'source-list');
-  for (const item of items) {
-    const source = isObject(item) ? item : {};
-    list.append(node('li', null, `${formatValue(source.case_id)} · ${formatValue(source.field)}`));
+  for (const source of items) {
+    const li = node('li');
+    const field = source.field || '';
+    const name = CONTEXT_LABELS[field.replace('case.', '')] || field.replace('checkpoint:', '调查证据 ').replace('detail:', '批次明细 ').replace(/^background$/, '产品背景');
+    const context = contexts.get(source.case_id);
+    const target = Array.from(context.querySelectorAll('[data-source-field]')).find(item => item.dataset.sourceField === field);
+    if (target) {
+      const button = node('button', 'source-link', `${source.case_id} · ${name} →`); button.type = 'button';
+      button.addEventListener('click', () => { context.open = true; CaseUI.focus(target); }); li.append(button);
+    } else li.textContent = `${source.case_id} · ${name}（本次上下文无可定位字段）`;
+    list.append(li);
   }
-  details.append(list);
-
-  // 每个被引用的 Case 展开一次它的完整上下文（不新建通用引用解析器）。
-  const seen = new Set();
-  for (const item of items) {
-    const source = isObject(item) ? item : {};
-    const caseId = source.case_id;
-    if (typeof caseId !== 'string' || seen.has(caseId)) {
-      continue;
-    }
-    seen.add(caseId);
-    details.append(renderContextCase(record, caseId));
-  }
+  details.append(list, ...contexts.values());
   return details;
 }
 
@@ -764,6 +828,9 @@ async function loadModelStatus() {
     modelStatusLine.textContent = '无法读取模型配置状态，搜索仍可使用；请检查服务后刷新页面。';
   }
   generateButton.disabled = inFlight || !modelConfigured;
+  document.getElementById('generation-hint').textContent = modelConfigured
+    ? '搜索无需模型；生成会重新检索并调用模型，可能产生费用。'
+    : '生成未配置或状态未知；可先搜索并查看证据，配置帮助见设置页。';
 }
 
 async function loadDatasetStatus() {
@@ -783,7 +850,7 @@ async function loadDatasetStatus() {
     }
     datasetSnapshotId = data.snapshot_id;
     knownAtInput.value = data.known_at;
-    line.textContent = `当前数据集：${data.name} · ${data.case_count} 个案例 · 更新于 ${data.updated_at}`;
+    line.textContent = `${data.name} · ${data.case_count} 个案例 · 资料可用日期 ${data.known_at}`;
     exampleDisclosure.hidden = data.is_upload;
     datasetReady = true;
   } catch (error) {
@@ -887,9 +954,13 @@ async function submitRequest(event) {
     setStatus('页面处理响应时出错：本次未得到可用结果。', 'error');
   } finally {
     setBusy(false);
+    CaseUI.focus(document.getElementById('result-heading'));
   }
 }
 
+document.getElementById('reload-context').addEventListener('click', () => {
+  if (!inFlight) { loadDatasetStatus(); loadRuntimeSettings(); loadModelStatus(); }
+});
 form.addEventListener('submit', submitRequest);
 exampleButton.addEventListener('click', fillExample);
 

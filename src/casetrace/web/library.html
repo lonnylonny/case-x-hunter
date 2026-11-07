@@ -4,28 +4,29 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>案例资料库 · Case-X-Hunter</title>
+  <link rel="stylesheet" href="/static/vendor/tabler/tabler-1.4.0.min.css">
   <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/ui.js" defer></script>
   <script src="/static/library.js" defer></script>
   <script src="/static/library-editor.js" defer></script>
 </head>
-<body>
+<body class="app-page">
+  <a class="skip-link" href="#main-content">跳至主要内容</a>
   <header class="page-header">
     <h1>案例资料库</h1>
-    <nav class="actions" aria-label="页面导航"><a href="/">搜索历史案例</a><a href="/library" aria-current="page">案例资料库</a><a href="/settings">设置</a></nav>
+    <nav class="nav nav-pills" aria-label="页面导航"><a class="nav-link" href="/">搜索历史案例</a><a class="nav-link active" href="/library" aria-current="page">案例资料库</a><a class="nav-link" href="/settings">设置</a></nav>
     <p class="notice">查看当前资料、完整调查及来源，无需模型密钥。历史结论仅供参考，资料仍待人工审阅。</p>
   </header>
-  <main>
-    <section class="panel" aria-labelledby="dataset-heading">
-      <h2 id="dataset-heading">当前数据集</h2>
-      <p id="dataset-state" role="status">正在读取数据状态…</p>
-      <dl id="dataset-details" class="kv"></dl>
-      <details id="dataset-technical" class="block"><summary>查看资料身份与摘要</summary><dl id="dataset-identities" class="kv"></dl></details>
-      <button id="refresh-dataset" type="button" class="secondary">刷新数据状态</button>
-    </section>
-    <section class="panel" aria-labelledby="browser-heading">
+  <main id="main-content" tabindex="-1">
+    <nav class="nav nav-tabs library-tabs" aria-label="资料库区域">
+      <a class="nav-link active" id="browse-tab" href="/library" aria-current="page">案例浏览</a>
+      <a class="nav-link" id="manage-tab" href="/library">资料管理</a>
+    </nav>
+    <div id="browse-workspace">
+    <section class="panel card" aria-labelledby="browser-heading">
       <h2 id="browser-heading">浏览案例</h2>
-      <div class="actions"><button id="new-case" type="button" disabled>新增案例</button></div>
-      <p class="hint">新增与编辑共用中文分区表单；保存后立即供新搜索使用，无需模型密钥。</p>
+      <div class="section-heading"><p id="browse-dataset" class="hint" role="status">正在读取案例资料…</p><div class="actions"><button id="refresh-browser" type="button" class="secondary">刷新资料</button><button id="new-case" type="button" disabled>新增案例</button></div></div>
+      <p class="hint">按字段浏览整库；如需描述异常找相似案例，请<a href="/">前往搜索</a>。</p>
       <form id="filter-form">
         <fieldset id="filter-fields" disabled>
           <legend>筛选当前资料</legend>
@@ -39,9 +40,11 @@
           <div class="actions"><button type="submit">筛选案例</button><button id="clear-filters" class="secondary" type="button">清空筛选</button></div>
         </fieldset>
       </form>
+      <p id="filter-change" class="hint" role="status"></p>
+      <div id="applied-filters" class="actions" aria-label="已应用筛选"></div>
       <p id="browser-status" class="status block" role="status" aria-live="polite">正在读取案例资料…</p>
       <div id="list-view">
-        <p id="case-counts" class="block"></p>
+        <div class="section-heading"><p id="case-counts" class="block"></p><label class="sort-control">本页排序<select id="library-sort"><option value="original">原始顺序</option><option value="date-desc">发现日期：新到旧</option><option value="date-asc">发现日期：旧到新</option></select></label></div>
         <div id="case-list"></div>
         <div id="pagination" class="actions" hidden>
           <button id="previous-page" class="secondary" type="button">上一页</button><span id="page-state"></span><button id="next-page" class="secondary" type="button">下一页</button>
@@ -50,20 +53,31 @@
         <button id="first-page" class="secondary" type="button" hidden>回到第一页</button>
       </div>
       <div id="detail-view" hidden>
+        <div class="actions detail-actions">
         <button id="back-to-list" class="secondary" type="button">返回筛选列表</button>
         <button id="edit-case" type="button">编辑整案</button>
         <button id="delete-case" class="secondary" type="button" disabled>删除案例</button>
+        </div>
         <section id="case-delete" class="block" hidden aria-label="删除案例确认"></section>
         <section id="case-editor" class="block" hidden aria-label="整案编辑"></section>
         <article id="case-detail-body" class="block" tabindex="-1"></article>
       </div>
     </section>
-    <section class="panel" aria-labelledby="restore-heading"><h2 id="restore-heading">恢复完整演示资料</h2>
+    </div>
+    <div id="management-workspace" hidden>
+    <section class="panel card" aria-labelledby="dataset-heading">
+      <h2 id="dataset-heading">当前数据集</h2>
+      <p id="dataset-state" role="status">正在读取数据状态…</p>
+      <dl id="dataset-details" class="kv"></dl>
+      <details id="dataset-technical" class="block"><summary>查看资料身份与摘要</summary><dl id="dataset-identities" class="kv"></dl></details>
+      <button id="refresh-dataset" type="button" class="secondary">刷新数据状态</button>
+    </section>
+    <section class="panel card" aria-labelledby="restore-heading"><h2 id="restore-heading">恢复完整演示资料</h2>
       <p>可重新载入九案完整合成演示库，保留原有分组、来源及完整可用日期。</p>
       <button id="restore-demo" type="button" class="secondary" disabled>载入完整演示数据</button>
       <p id="restore-status" class="status" role="status" aria-live="polite"></p>
     </section>
-    <section class="panel" aria-labelledby="template-heading">
+    <section class="panel card" aria-labelledby="template-heading">
       <h2 id="template-heading">1. 下载并填写唯一 CSV 模板</h2>
       <div class="actions">
         <a class="button secondary" href="/dataset/template" download>下载空白模板</a>
@@ -92,7 +106,7 @@
         <div id="reference-body"></div>
       </details>
     </section>
-    <section class="panel" aria-labelledby="upload-heading">
+    <section class="panel card" aria-labelledby="upload-heading">
       <h2 id="upload-heading">2. 上传并整体替换</h2>
       <form id="upload-form">
         <div class="field"><label for="dataset-name">数据集名称</label><input id="dataset-name" maxlength="120" required placeholder="例如：封装调查合成演示"></div>
@@ -106,6 +120,7 @@
       <ul id="upload-errors" class="text-list"></ul>
       <a id="search-uploaded" href="/" hidden>前往搜索当前资料</a>
     </section>
+    </div>
   </main>
   <footer class="page-footer"><p>来源可定位不代表结论已获语义验证。上传或恢复会整体替换当前案例资料，不继承旧评估结论。</p></footer>
 </body>

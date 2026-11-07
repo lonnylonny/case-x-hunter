@@ -1,0 +1,46 @@
+- generic [active] [ref=f1e1]:
+  - banner [ref=f1e2]:
+    - heading "Case-X-Hunter 历史案例参考" [level=1] [ref=f1e3]
+    - navigation "页面导航" [ref=f1e4]:
+      - link "搜索历史案例" [ref=f1e5] [cursor=pointer]:
+        - /url: /?ui=b6e210fd82473e00
+      - link "案例资料库" [ref=f1e6] [cursor=pointer]:
+        - /url: /library?ui=b6e210fd82473e00
+      - link "设置" [ref=f1e7] [cursor=pointer]:
+        - /url: /settings?ui=b6e210fd82473e00
+    - note [ref=f1e8]:
+      - text: 搜索历史案例与检查证据，配置模型后可生成有来源的调查参考。
+      - strong [ref=f1e9]: 历史原因与措施不等于当前异常的最终根因或当前建议。
+    - paragraph [ref=f1e10]:
+      - link "管理与编辑案例" [ref=f1e11] [cursor=pointer]:
+        - /url: /library?ui=b6e210fd82473e00
+  - main [ref=f1e12]:
+    - region [ref=f1e13]:
+      - heading "当前已知异常" [level=2] [ref=f1e14]
+      - status [ref=f1e15]: 当前数据集：内置合成示例 dev-v3 · 9 个案例 · 更新于 2026-11-07T00:00:00
+      - generic [ref=f1e16]:
+        - generic [ref=f1e17]:
+          - generic [ref=f1e18]: 当前已知信息
+          - textbox "当前已知信息" [ref=f1e19]:
+            - /placeholder: 例如：OQC 拉力试验显示焊线自焊盘脱开，原因尚未确认。
+          - paragraph [ref=f1e20]: 原文发送给服务端，不改写、不截断；空白 Query 不会提交。
+        - status [ref=f1e21]: 模型已配置。点击“生成调查参考”会调用模型，可能产生费用；配置状态不保证调用成功。
+        - status [ref=f1e22]: 已保存设置：Top K 4 · 回答输出上限 4096 tokens。提交时读取最新设置，本次实际值见结果。
+        - generic [ref=f1e23]:
+          - button "搜索历史案例" [ref=f1e24] [cursor=pointer]
+          - button "生成调查参考" [ref=f1e25] [cursor=pointer]
+        - group [ref=f1e26]:
+          - generic "试用示例" [ref=f1e27] [cursor=pointer]
+          - option "A · 焊线脱落与界面剥离" [selected]
+          - option "B · 声学扫描发现塑封空洞"
+          - option "C · 客户收货后的 BGA 缺球"
+        - group [ref=f1e28]:
+          - generic "高级检索选项" [ref=f1e29] [cursor=pointer]
+    - region [ref=f1e30]:
+      - heading "处理状态" [level=2] [ref=f1e31]
+      - status [ref=f1e32]: 尚未提交。
+    - region [ref=f1e33]:
+      - heading "历史参考" [level=2] [ref=f1e34]
+      - paragraph [ref=f1e36]: 搜索后可查看候选案例与证据原文；生成调查参考后可查看采用理由和当前信息缺口。
+  - contentinfo [ref=f1e37]:
+    - paragraph [ref=f1e38]: 回答是历史参考；引用可定位不等于引用支持原句，语义支持仍需人工审阅。运行记录不含凭据。

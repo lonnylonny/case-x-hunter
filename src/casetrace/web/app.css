@@ -621,3 +621,123 @@ nav [aria-current="page"] { font-weight: 700; }
   .fact-comparison { grid-template-columns: 1fr; }
   .table-scroll-hint { display: block; margin-top: 0.4rem; }
 }
+
+/* Tabler 1.4 + Case-X-Hunter：组件沿用 Tabler，领域内容保留原生 DOM。 */
+:root { --tblr-font-sans-serif: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; }
+.app-page { font-family: var(--tblr-font-sans-serif); font-size: 15px; line-height: 1.6; }
+.page-header, main, .page-footer { max-width: 1240px; }
+.page-header { padding: 1.25rem 0 .25rem; }
+.page-header h1 { font-size: 1.6rem; margin: .25rem 0 .8rem; }
+.page-pretitle { color: var(--muted); font-size: .75rem; letter-spacing: .08em; }
+.page-header .nav { margin-bottom: 1rem; gap: .4rem; }
+.nav-link { color: var(--muted); min-height: 40px; display: inline-flex; align-items: center; }
+.nav-pills .nav-link.active { background: var(--accent); color: white; }
+a { color: var(--accent-strong); }
+.skip-link { position: absolute; left: 1rem; top: -100px; padding: .5rem 1rem; background: white; z-index: 100; }
+.skip-link:focus { top: .5rem; }
+:focus-visible { outline: 3px solid var(--accent) !important; outline-offset: 3px; }
+:target { scroll-margin-top: 5rem; }
+.panel.card { display: block; box-shadow: 0 1px 2px #18243308; padding: 1.25rem; }
+.section-heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: .75rem; margin-bottom: .75rem; }
+.section-heading h2, .section-heading p, .section-heading .actions { margin: 0; }
+.section-heading > a { font-size: .85rem; }
+.notice { padding: .6rem .9rem; font-size: .88rem; }
+#current-dataset { margin-bottom: .5rem; }
+.query-field textarea { min-height: 5.5rem; }
+.query-field { margin-bottom: .65rem; }
+.search-actions { align-items: center; margin: .5rem 0 .65rem; }
+#answer-form > details { display: inline-block; vertical-align: top; margin: .35rem .5rem .35rem 0; max-width: 100%; }
+#answer-form > details[open] { display: block; }
+#answer-form details .hint { margin: .5rem 0; }
+#reload-context { margin-top: .5rem; font-size: .8rem; padding: .25rem .65rem; }
+.request-feedback { margin-top: .75rem; }
+#results-panel { min-height: 8rem; scroll-margin-top: 1rem; }
+#result-heading { scroll-margin-top: 1rem; }
+.card { display: block; box-shadow: none; }
+.card-header { min-height: auto; padding: .5rem 0; background: transparent; }
+.btn { min-height: 36px; font-size: .9rem; white-space: normal; }
+button.case-link { min-height: 28px; }
+.btn.secondary { border-color: var(--border); color: var(--accent-strong); }
+button:disabled { cursor: not-allowed; }
+.form-control, .form-select { min-width: 0; font-size: .95rem; }
+.form-check-input { width: 1.1rem; height: 1.1rem; padding: 0; flex-shrink: 0; }
+label { margin-bottom: .2rem; }
+.table { --tblr-table-border-color: var(--border); }
+.table > :not(caption) > * > * { white-space: normal; }
+.ranking-table.table th, .library-table.table th, .case-overview.table th { background: #f6f8fb; color: var(--muted); font-size: .8rem; text-transform: none; letter-spacing: 0; }
+.library-table.table td { padding: .8rem .6rem; white-space: pre-wrap; }
+.library-table th:nth-child(1) { width: 35%; }
+.library-table th:nth-child(2) { width: 23%; }
+.library-table th:nth-child(3) { width: 15%; }
+.library-table th:nth-child(4) { width: 17%; }
+.library-table th:nth-child(5) { width: 10%; }
+.case-summary { display: block; overflow: visible; font-size: .9rem; }
+.library-table .secondary { font-size: .78rem; padding: .15rem .5rem; margin-top: .4rem; }
+.library-tabs { margin: 1rem 0 0; }
+#filter-fields { border: 0; padding: 0; margin: .75rem 0 0; min-width: 0; }
+#filter-fields legend { position: absolute; clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; }
+#filter-fields .field-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+#filter-keyword { max-width: 100%; }
+#filter-fields .field { margin-bottom: .6rem; }
+#browser-status { font-size: .85rem; margin-top: .75rem; }
+#applied-filters { margin: .4rem 0; }
+#applied-filters .btn { font-size: .78rem; min-height: 30px; padding: .2rem .5rem; }
+#filter-change { color: var(--warning); }
+.sort-control { display: flex; gap: .5rem; align-items: center; font-size: .8rem; margin: 0; }
+.sort-control select { width: auto; }
+.detail-actions { padding: .75rem 0; position: sticky; top: 0; background: var(--surface); z-index: 5; }
+.detail-nav { position: sticky; top: 58px; z-index: 4; padding: .65rem; background: #f6f8fb; border: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: .75rem; border-radius: 6px; }
+.detail-nav a { font-size: .85rem; }
+#case-detail-body > section { scroll-margin-top: 8rem; }
+#case-detail-body > .card { padding: 1rem; }
+#case-detail-body .card .card { border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent; padding: .75rem 0; }
+#case-detail-body .field-block { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 1rem; margin-bottom: .5rem; }
+#case-detail-body .field-label { color: var(--muted); font-weight: 500; }
+#detail-view[hidden] + * { display: none; }
+.candidate-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; }
+.candidate-card { padding: 1rem; background: white; border: 1px solid var(--border); border-radius: 8px; min-width: 0; }
+.candidate-card h4 { margin-top: 0; }
+.candidate-meta { color: var(--muted); font-size: .85rem; margin: .5rem 0; }
+.candidate-card .field-value { font-size: .9rem; }
+.candidate-card .actions { align-items: center; justify-content: space-between; }
+.candidate-card .context-case { margin-top: .75rem; }
+.compare-choice { display: flex; align-items: center; gap: .5rem; font-weight: 400; font-size: .85rem; }
+.comparison-toolbar { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; margin: 1rem 0; }
+.comparison-table { min-width: 640px; table-layout: fixed; }
+.comparison-table th:first-child { width: 120px; }
+.comparison-table th, .comparison-table td { vertical-align: top; padding: .8rem; overflow-wrap: anywhere; white-space: pre-wrap !important; }
+.context-case .kv { margin-bottom: .75rem; }
+.context-case .object-list { margin-top: .75rem; }
+.source-link { padding: .2rem .4rem; border: 0; background: transparent; color: var(--accent-strong); text-decoration: underline; text-align: left; }
+.evidence-target:focus { background: #eaf3ff; }
+.source-list { margin: .5rem 0; }
+.source-list li { margin-bottom: .4rem; }
+.retrieval-audit { margin-top: 1rem; }
+#settings-form { max-width: 680px; }
+#settings-fields { padding: 1rem; border: 1px solid var(--border); border-radius: 6px; }
+#model-state { font-weight: 600; }
+#case-editor .edit-record { background: #fafbfd; }
+#case-editor .field { max-width: 850px; }
+#case-editor .field:has([required]) > label::after { content: ' *'; color: var(--error); }
+.edit-nav { display: flex; gap: 1rem; flex-wrap: wrap; margin: .5rem 0; }
+.edit-nav a { font-size: .85rem; }
+.edit-record { scroll-margin-top: 11rem; }
+.page-footer { color: var(--muted); font-size: .8rem; padding-top: 1rem; }
+@media (max-width: 900px) { #filter-fields .field-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) {
+  .candidate-grid { grid-template-columns: 1fr; }
+  #filter-fields .field-row { grid-template-columns: 1fr 1fr; }
+  #case-detail-body .field-block { grid-template-columns: 1fr; gap: .15rem; }
+  .detail-nav { top: 100px; }
+  .form-control, .form-select { font-size: 16px; }
+  .section-heading { align-items: flex-start; }
+  .section-heading > a { width: 100%; }
+  .search-actions .hint { width: 100%; }
+  .btn { min-height: 40px; }
+  .case-overview th, .case-overview td { padding: .6rem; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
+/* 进入单案后收起列表筛选，使调查与编辑操作保持在首要位置。 */
+.panel:has(#detail-view:not([hidden])) > #filter-form,
+.panel:has(#detail-view:not([hidden])) > #filter-change,
+.panel:has(#detail-view:not([hidden])) > #applied-filters { display: none; }
